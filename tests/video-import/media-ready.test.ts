@@ -56,7 +56,11 @@ class MediaStub extends EventTarget {
 
   assertClean() {
     assert.equal(this.callbacks.size, 0, 'pending frame callbacks were not canceled')
-    assert.equal([...this.listeners.values()].reduce((sum, listeners) => sum + listeners.size, 0), 0, 'media listeners were not removed')
+    assert.equal(
+      [...this.listeners.values()].reduce((sum, listeners) => sum + listeners.size, 0),
+      0,
+      'media listeners were not removed',
+    )
   }
 }
 
@@ -200,5 +204,20 @@ test('synchronous load/seek exceptions do not leak resources', async () => {
     }),
     /synthetic seek failure/,
   )
+  video.assertClean()
+})
+
+test('an early display callback never skips the post-decode rendering opportunity', async () => {
+  const video = new MediaStub()
+  let resolved = false
+  const work = wait(video, () => {
+    video.present()
+    video.decoded()
+  }).then(() => {
+    resolved = true
+  })
+  await Promise.resolve()
+  assert.equal(resolved, false, 'early display callback returned potentially blank first-frame pixels')
+  await work
   video.assertClean()
 })

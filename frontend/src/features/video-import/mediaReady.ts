@@ -25,7 +25,6 @@ export function waitForDecodedMedia({
   return new Promise((resolve, reject) => {
     let settled = false
     let started = false
-    let framePresented = false
     let frameCallback: number | undefined
     let paintCallback: number | undefined
     let paintTimer: ReturnType<typeof setTimeout> | undefined
@@ -71,7 +70,9 @@ export function waitForDecodedMedia({
       // This timer is a compositor fallback, NEVER a decode timeout bypass.
       // Do not accept pixels if the decoder is still seeking or has no frame.
       cancelPaint()
-      if (ready()) {
+      if (video.error) {
+        failed()
+      } else if (ready()) {
         finish()
       }
     }
@@ -83,11 +84,10 @@ export function waitForDecodedMedia({
         failed()
       } else if (!ready()) {
         cancelPaint()
-      } else if (framePresented) {
-        finish()
       } else if (paintTimer === undefined) {
-        // Two rendering turns avoid a stale/black drawImage immediately after
-        // seeked. Timers still work when hidden tabs suspend rendering callbacks.
+        // Always settle rendering after decoded readiness, even if an early
+        // rVFC already fired: it can precede canvas-readable first-frame pixels.
+        // Timers still work when hidden tabs suspend rendering callbacks.
         paintTimer = setTimeout(afterPaint, 100)
         if (typeof requestAnimationFrame === 'function') {
           paintCallback = requestAnimationFrame(() => {
@@ -116,7 +116,6 @@ export function waitForDecodedMedia({
       // Register BEFORE starting the load/seek, not after the frame may be ready.
       if (typeof video.requestVideoFrameCallback === 'function') {
         frameCallback = video.requestVideoFrameCallback(() => {
-          framePresented = true
           check()
         })
       }

@@ -21,6 +21,18 @@ export async function checkDecoderRegressions(check: Check, assert: Assert, file
       recording.dispose()
     }
   }
+  await check('repeated cold opens return opaque first frames and correct forward/backward pixels', async () => {
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const recording = await openRecording(file)
+      try {
+        for (const time of [0, 1.5, 0, 0.25]) {
+          checkPixel(await recording.frame(time), time)
+        }
+      } finally {
+        recording.dispose()
+      }
+    }
+  })
   await check('dropped display callbacks cannot turn successful seeks into timeouts', async () => {
     const original = HTMLVideoElement.prototype.requestVideoFrameCallback
     HTMLVideoElement.prototype.requestVideoFrameCallback = function () {
