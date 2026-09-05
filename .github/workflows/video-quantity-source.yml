@@ -1,0 +1,21 @@
+name: Video quantity regression source
+on:
+  push:
+    branches: [feat/local-video-import]
+    paths: [.github/workflows/video-quantity-source.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: tar --exclude='frontend/public' --exclude='frontend/.env*' -czf /tmp/source.tar.gz frontend tests docs package.json pnpm-lock.yaml pnpm-workspace.yaml biome.json .github
+      - uses: actions/upload-artifact@v4
+        with:
+          name: video-quantity-source
+          path: /tmp/source.tar.gz
+          retention-days: 1
