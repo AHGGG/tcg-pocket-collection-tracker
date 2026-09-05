@@ -1,0 +1,80 @@
+name: Local video importer
+
+on:
+  push:
+    branches: [feat/local-video-import]
+  pull_request:
+    paths:
+      - frontend/src/features/video-import/**
+      - frontend/src/services/scanner/**
+      - frontend/tests/video-import*
+      - frontend/video-import.html
+      - frontend/vite*.ts
+      - tests/video-import/**
+      - package.json
+      - pnpm-lock.yaml
+      - .github/workflows/video-import.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: video-import-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        id: install
+      - name: Snapshot, CSV and reconciliation tests
+        if: always() && steps.install.outcome == 'success'
+        run: pnpm test:video-import
+      - name: Full frontend type check
+        if: always() && steps.install.outcome == 'success'
+        run: pnpm --filter frontend exec tsc -b
+      - name: Full frontend build
+        if: always() && steps.install.outcome == 'success'
+        run: pnpm --filter frontend exec vite build
+      - name: Standalone entry build
+        if: always() && steps.install.outcome == 'success'
+        run: pnpm build:video-import
+      - name: Native browser checks and React smoke test
+        if: always() && steps.install.outcome == 'success'
+        run: pnpm test:video-import:browser
+      - name: Quality checks
+        if: always() && steps.install.outcome == 'success'
+        run: pnpm lint
+      - name: Preserve verification output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-import-browser-results
+          path: tests/video-import/results/
+          if-no-files-found: ignore
+      - name: Prepare diagnostic formatting patch (never applied to the branch)
+        if: failure() && steps.install.outcome == 'success'
+        shell: bash
+        run: |
+          pnpm exec biome check --write frontend/src/features/video-import frontend/src/services/scanner/CardDetectionService.tsx frontend/tests/video-import.browser.ts frontend/tests/video-import.fixture.ts frontend/vite.config.ts frontend/vite.video-import.config.ts tests/video-import package.json || true
+          git diff --binary > /tmp/video-import-formatting.patch
+      - name: Preserve diagnostic patch
+        if: failure() && steps.install.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-import-formatting-patch
+          path: /tmp/video-import-formatting.patch
+          if-no-files-found: ignore

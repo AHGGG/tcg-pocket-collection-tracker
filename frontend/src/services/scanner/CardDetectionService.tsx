@@ -29,8 +29,15 @@ export interface ExtractedCard {
 const numClass = 1
 const modelPath = '/model/model.json'
 
-export async function loadModel() {
-  return tf.loadGraphModel(modelPath)
+export async function loadModel(url = modelPath, requestInit?: RequestInit) {
+  return tf.loadGraphModel(url, { requestInit })
+}
+
+type ScannerImage = HTMLImageElement | HTMLCanvasElement
+
+/** Snapshot callers use this without the screenshot importer's increment semantics. */
+export async function detectCanvasFrame(model: tf.GraphModel, frame: HTMLCanvasElement): Promise<BoundingBox[]> {
+  return detectSingleImage(model, frame)
 }
 
 async function fileToImage(imageFile: File): Promise<HTMLImageElement> {
@@ -58,7 +65,7 @@ async function fileToImage(imageFile: File): Promise<HTMLImageElement> {
 }
 
 function preprocessImage(
-  image: HTMLImageElement,
+  image: ScannerImage,
   modelWidth: number,
   modelHeight: number,
 ): {
@@ -97,7 +104,7 @@ function preprocessImage(
   }
 }
 
-async function detectSingleImage(model: tf.GraphModel, image: HTMLImageElement): Promise<BoundingBox[]> {
+async function detectSingleImage(model: tf.GraphModel, image: ScannerImage): Promise<BoundingBox[]> {
   const modelWidth = 640
   const modelHeight = 640
   const scoreThreshold = 0.1

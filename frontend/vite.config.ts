@@ -28,6 +28,10 @@ export default defineConfig({
       include: [/onnxruntime-web/, /node_modules/],
     },
     rollupOptions: {
+      input: {
+        main: path.resolve(import.meta.dirname, 'index.html'),
+        videoImport: path.resolve(import.meta.dirname, 'video-import.html'),
+      },
       output: {
         codeSplitting: {
           groups: [
