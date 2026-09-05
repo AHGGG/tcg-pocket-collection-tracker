@@ -9,6 +9,31 @@ export function throwIfAborted(signal?: AbortSignal): void {
   }
 }
 
+/** drawImage may still be a no-op during a browser's cold first-frame upload.
+ * A pair of different sentinels detects a no-op without rejecting black or
+ * transparent video. 'copy' also prevents pixels from a previous frame surviving.
+ */
+export function drawVideoPixels(context: CanvasRenderingContext2D, video: HTMLVideoElement): boolean {
+  const { width, height } = context.canvas
+  context.save()
+  try {
+    context.globalCompositeOperation = 'copy'
+    for (const color of ['#132b47', '#e6c29a']) {
+      context.fillStyle = color
+      context.fillRect(0, 0, 1, 1)
+      const before = context.getImageData(0, 0, 1, 1).data
+      context.drawImage(video, 0, 0, width, height)
+      const after = context.getImageData(0, 0, 1, 1).data
+      if (after.some((channel, index) => channel !== before[index])) {
+        return true
+      }
+    }
+    return false
+  } finally {
+    context.restore()
+  }
+}
+
 export interface Recording {
   duration: number
   width: number
@@ -93,7 +118,23 @@ export async function openRecording(file: File, signal?: AbortSignal): Promise<R
           }
           throwIfAborted(frameSignal)
           throwIfAborted(lifetime.signal)
-          context.drawImage(video, 0, 0, width, height)
+          const deadline = performance.now() + 2000
+          while (!drawVideoPixels(context, video)) {
+            throwIfAborted(frameSignal)
+            throwIfAborted(lifetime.signal)
+            if (performance.now() >= deadline) {
+              throw new Error(`Video pixels were not available at ${target.toFixed(3)}s. Retry the scan.`)
+            }
+            await waitForDecodedMedia({
+              video,
+              description: `reading pixels at ${target.toFixed(3)}s`,
+              signals: [frameSignal, lifetime.signal],
+              ready: () => video.readyState >= 2 && !video.seeking && Math.abs(video.currentTime - target) <= 0.001,
+              start: () => {},
+            })
+          }
+          throwIfAborted(frameSignal)
+          throwIfAborted(lifetime.signal)
           return canvas
         } finally {
           reading = false

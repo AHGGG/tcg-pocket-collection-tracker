@@ -1,4 +1,4 @@
-import { openRecording } from '../src/features/video-import/video'
+import { drawVideoPixels, openRecording } from '../src/features/video-import/video'
 
 type Check = (name: string, work: () => void | Promise<void>) => Promise<void>
 type Assert = (condition: unknown, message: string) => void
@@ -32,6 +32,41 @@ export async function checkDecoderRegressions(check: Check, assert: Assert, file
         recording.dispose()
       }
     }
+  })
+  await check('first-frame no-op draws are retried rather than returned as blank pixels', async () => {
+    const recording = await openRecording(file)
+    const draw = CanvasRenderingContext2D.prototype.drawImage
+    let missed = 0
+    CanvasRenderingContext2D.prototype.drawImage = function (image: CanvasImageSource, ...coordinates: number[]) {
+      if (image instanceof HTMLVideoElement && missed++ < 4) {
+        return
+      }
+      return Reflect.apply(draw, this, [image, ...coordinates])
+    }
+    try {
+      checkPixel(await recording.frame(0), 0)
+      assert(missed >= 5, 'a no-op draw escaped instead of being retried')
+    } finally {
+      CanvasRenderingContext2D.prototype.drawImage = draw
+      recording.dispose()
+    }
+  })
+  await check('pixel readiness accepts actual transparent pixels and sentinel-colored pixels', () => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 16
+    canvas.height = 16
+    const context = canvas.getContext('2d') as CanvasRenderingContext2D
+    const source = document.createElement('canvas')
+    source.width = 16
+    source.height = 16
+    const sourceContext = source.getContext('2d') as CanvasRenderingContext2D
+    // Canvas and video share drawImage semantics; a canvas gives controlled alpha.
+    assert(drawVideoPixels(context, source as unknown as HTMLVideoElement), 'transparent frame rejected')
+    assert(context.getImageData(0, 0, 1, 1).data[3] === 0, 'transparent frame retained a sentinel')
+    sourceContext.fillStyle = '#132b47'
+    sourceContext.fillRect(0, 0, 16, 16)
+    assert(drawVideoPixels(context, source as unknown as HTMLVideoElement), 'real sentinel-colored content rejected')
+    assert(context.getImageData(0, 0, 1, 1).data[0] === 19, 'sentinel damaged actual video content')
   })
   await check('dropped display callbacks cannot turn successful seeks into timeouts', async () => {
     const original = HTMLVideoElement.prototype.requestVideoFrameCallback
