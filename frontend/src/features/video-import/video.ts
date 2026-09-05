@@ -8,18 +8,30 @@ export function throwIfAborted(signal?: AbortSignal): void {
   }
 }
 
-function waitForMedia(video: HTMLVideoElement, event: string, signal: AbortSignal | undefined, start: () => void): Promise<void> {
+function waitForMedia(video: HTMLVideoElement, event: string, signal: AbortSignal | undefined, start: () => void, waitForFrame = false): Promise<void> {
   throwIfAborted(signal)
   return new Promise((resolve, reject) => {
+    let mediaReady = false
+    let frameReady = !waitForFrame
+    let frameCallback: number | undefined
     const cleanup = () => {
       clearTimeout(timeout)
+      if (frameCallback !== undefined) {
+        video.cancelVideoFrameCallback(frameCallback)
+      }
       video.removeEventListener(event, done)
       video.removeEventListener('error', failed)
       signal?.removeEventListener('abort', aborted)
     }
+    const finish = () => {
+      if (mediaReady && frameReady) {
+        cleanup()
+        resolve()
+      }
+    }
     const done = () => {
-      cleanup()
-      resolve()
+      mediaReady = true
+      finish()
     }
     const failed = () => {
       cleanup()
@@ -38,6 +50,14 @@ function waitForMedia(video: HTMLVideoElement, event: string, signal: AbortSigna
     signal?.addEventListener('abort', aborted, { once: true })
     try {
       start()
+      if (waitForFrame) {
+        // loadeddata/seeked can precede the compositor's frame update. Waiting for
+        // both prevents drawImage from capturing black pixels or the previous seek.
+        frameCallback = video.requestVideoFrameCallback(() => {
+          frameReady = true
+          finish()
+        })
+      }
     } catch (error) {
       cleanup()
       reject(error)
@@ -59,6 +79,9 @@ export async function openRecording(file: File, signal?: AbortSignal): Promise<R
     throw new Error('Choose a non-empty recording smaller than 2 GB.')
   }
   const video = document.createElement('video')
+  if (typeof video.requestVideoFrameCallback !== 'function') {
+    throw new Error('This browser cannot synchronize video frames. Use an up-to-date Chrome, Edge, Firefox or Safari.')
+  }
   video.preload = 'auto'
   video.muted = true
   video.playsInline = true
@@ -74,10 +97,16 @@ export async function openRecording(file: File, signal?: AbortSignal): Promise<R
     }
   }
   try {
-    await waitForMedia(video, 'loadeddata', signal, () => {
-      video.src = url
-      video.load()
-    })
+    await waitForMedia(
+      video,
+      'loadeddata',
+      signal,
+      () => {
+        video.src = url
+        video.load()
+      },
+      true,
+    )
     const { duration, videoWidth: width, videoHeight: height } = video
     if (!Number.isFinite(duration) || duration <= 0 || duration > 1800) {
       throw new Error('The recording must have a seekable duration of at most 30 minutes. Export a regular MP4 if duration metadata is missing.')
@@ -103,9 +132,15 @@ export async function openRecording(file: File, signal?: AbortSignal): Promise<R
         }
         const target = Math.max(0, Math.min(time, Math.max(0, duration - 0.001)))
         if (Math.abs(video.currentTime - target) > 0.001 || video.seeking) {
-          await waitForMedia(video, 'seeked', frameSignal, () => {
-            video.currentTime = target
-          })
+          await waitForMedia(
+            video,
+            'seeked',
+            frameSignal,
+            () => {
+              video.currentTime = target
+            },
+            true,
+          )
         }
         if (video.readyState < 2) {
           await waitForMedia(video, 'loadeddata', frameSignal, () => {})

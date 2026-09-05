@@ -119,13 +119,12 @@ await check('native video decoder seeks to distinct frames and repeated timestam
   const recording = await openRecording(file)
   try {
     assert(recording.width === 64 && recording.height === 96, 'unexpected decoded dimensions')
-    const first = await recording.frame(0.25)
-    const firstPixel = first.getContext('2d')?.getImageData(10, 10, 1, 1).data
-    assert(firstPixel && firstPixel[0] > 200 && firstPixel[2] < 40, 'first frame is not red')
-    const second = await recording.frame(1.5)
-    const secondPixel = second.getContext('2d')?.getImageData(10, 10, 1, 1).data
-    assert(secondPixel && secondPixel[2] > 200 && secondPixel[0] < 40, 'seek returned stale frame')
-    await recording.frame(1.5)
+    for (const timestamp of [0, 0.25, 0.95, 1.5, 1.5, 0.25, 0, 1.5]) {
+      const frame = await recording.frame(timestamp)
+      const pixel = frame.getContext('2d')?.getImageData(10, 10, 1, 1).data
+      const isRed = timestamp < 1
+      assert(pixel && pixel[isRed ? 0 : 2] > 200 && pixel[isRed ? 2 : 0] < 40, `stale frame at ${timestamp}s: ${pixel}`)
+    }
   } finally {
     recording.dispose()
   }
