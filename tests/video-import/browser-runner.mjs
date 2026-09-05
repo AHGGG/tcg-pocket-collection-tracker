@@ -11,13 +11,15 @@ if (Number(process.versions.node.split('.')[0]) < 22) {
 }
 const candidates = [
   process.env.CHROME_PATH,
-  '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser',
+  '/usr/bin/google-chrome',
+  '/usr/bin/google-chrome-stable',
+  '/usr/bin/chromium',
+  '/usr/bin/chromium-browser',
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
-  ...[process.env.PROGRAMFILES, process.env['PROGRAMFILES(X86)'], process.env.LOCALAPPDATA].filter(Boolean).flatMap((directory) => [
-    path.join(directory, 'Google/Chrome/Application/chrome.exe'),
-    path.join(directory, 'Microsoft/Edge/Application/msedge.exe'),
-  ]),
+  ...[process.env.PROGRAMFILES, process.env['PROGRAMFILES(X86)'], process.env.LOCALAPPDATA]
+    .filter(Boolean)
+    .flatMap((directory) => [path.join(directory, 'Google/Chrome/Application/chrome.exe'), path.join(directory, 'Microsoft/Edge/Application/msedge.exe')]),
 ]
 const executable = candidates.find((candidate) => candidate && existsSync(candidate))
 if (!executable) {
@@ -33,7 +35,9 @@ let socket
 let logs = ''
 const diagnostics = []
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
-const appendLog = (data) => { logs = (logs + String(data)).slice(-250_000) }
+const appendLog = (data) => {
+  logs = (logs + String(data)).slice(-250_000)
+}
 async function until(work, label, timeout = 30_000) {
   const deadline = Date.now() + timeout
   let lastError
@@ -69,20 +73,36 @@ function terminate(child) {
 }
 try {
   await mkdir(output, { recursive: true })
-  server = launch(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', [
-    '--filter', 'frontend', 'exec', 'vite', '--config', 'vite.video-import.config.ts',
-    '--host', '127.0.0.1', '--port', String(port), '--strictPort',
-  ], { shell: process.platform === 'win32', env: { ...process.env, VIDEO_IMPORT_TEST: '1' } })
+  server = launch(
+    process.execPath,
+    [
+      path.resolve('frontend/node_modules/vite/bin/vite.js'),
+      '--config',
+      'vite.video-import.config.ts',
+      '--host',
+      '127.0.0.1',
+      '--port',
+      String(port),
+      '--strictPort',
+    ],
+    { cwd: path.resolve('frontend'), env: { ...process.env, VIDEO_IMPORT_TEST: '1' } },
+  )
   await until(async () => {
     if (server.exitCode !== null) {
       throw new Error(`Vite exited with ${server.exitCode}`)
     }
-    return (await fetch(`${origin}/tests/video-import.html`)).ok
+    return (await fetch(`${origin}/tests/video-import.html`, { signal: AbortSignal.timeout(5000) })).ok
   }, 'start Vite')
   const chromeArgs = [
-    '--headless=new', '--disable-gpu', '--no-first-run', '--disable-default-apps',
-    '--disable-extensions', '--disable-background-networking', '--remote-debugging-port=0',
-    `--user-data-dir=${profile}`, 'about:blank',
+    '--headless=new',
+    '--disable-gpu',
+    '--no-first-run',
+    '--disable-default-apps',
+    '--disable-extensions',
+    '--disable-background-networking',
+    '--remote-debugging-port=0',
+    `--user-data-dir=${profile}`,
+    'about:blank',
   ]
   if (process.platform === 'linux' && process.getuid?.() === 0) {
     chromeArgs.unshift('--no-sandbox')
@@ -92,14 +112,28 @@ try {
     const [value] = (await readFile(path.join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')
     return /^\d+$/.test(value) && value
   }, 'start test browser')
-  const targets = await (await fetch(`http://127.0.0.1:${debuggingPort}/json/list`)).json()
+  const targets = await (await fetch(`http://127.0.0.1:${debuggingPort}/json/list`, { signal: AbortSignal.timeout(5000) })).json()
   const target = targets.find((entry) => entry.type === 'page')
   assert.ok(target?.webSocketDebuggerUrl, 'Browser did not expose a test page')
   socket = new WebSocket(target.webSocketDebuggerUrl)
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('DevTools connection timed out')), 10_000)
-    socket.addEventListener('open', () => { clearTimeout(timer); resolve() }, { once: true })
-    socket.addEventListener('error', () => { clearTimeout(timer); reject(new Error('DevTools connection failed')) }, { once: true })
+    socket.addEventListener(
+      'open',
+      () => {
+        clearTimeout(timer)
+        resolve()
+      },
+      { once: true },
+    )
+    socket.addEventListener(
+      'error',
+      () => {
+        clearTimeout(timer)
+        reject(new Error('DevTools connection failed'))
+      },
+      { once: true },
+    )
   })
   let nextId = 1
   const pending = new Map()
@@ -123,12 +157,16 @@ try {
       requests.push(message.params.request.url)
     }
   })
-  const command = (method, params = {}) => new Promise((resolve, reject) => {
-    const id = nextId++
-    const timer = setTimeout(() => { pending.delete(id); reject(new Error(`${method} timed out`)) }, 15_000)
-    pending.set(id, { resolve, reject, timer })
-    socket.send(JSON.stringify({ id, method, params }))
-  })
+  const command = (method, params = {}) =>
+    new Promise((resolve, reject) => {
+      const id = nextId++
+      const timer = setTimeout(() => {
+        pending.delete(id)
+        reject(new Error(`${method} timed out`))
+      }, 15_000)
+      pending.set(id, { resolve, reject, timer })
+      socket.send(JSON.stringify({ id, method, params }))
+    })
   const evaluate = async (expression) => {
     const result = await command('Runtime.evaluate', { expression, returnByValue: true })
     if (result.exceptionDetails) {
@@ -140,15 +178,20 @@ try {
   await command('Runtime.enable')
   await command('Network.enable')
   await command('Page.navigate', { url: `${origin}/tests/video-import.html` })
-  const results = await until(async () => {
-    const value = await evaluate('window.videoImportTestResults')
-    return value?.done && value
-  }, 'browser assertions', 120_000)
+  const results = await until(
+    async () => {
+      const value = await evaluate('window.videoImportTestResults')
+      return value?.done && value
+    },
+    'browser assertions',
+    120_000,
+  )
   assert.equal(results.failed, 0, results.messages.join('\n'))
   await command('Page.navigate', { url: `${origin}/video-import.html` })
-  await until(async () => (await evaluate('document.querySelector("h1")?.textContent')) === 'Recording → collection', 'React importer smoke test')
+  await until(async () => (await evaluate('document.querySelector("h1")?.textContent')) === 'Scan a video', 'React importer smoke test')
   const pageText = await evaluate('document.body.textContent')
-  assert.ok(pageText.includes('Choose your files'), 'Importer did not render the first step')
+  assert.ok(pageText.includes('Choose a video, then press Scan.'), 'Importer did not render the simple upload flow')
+  assert.ok(!pageText.includes('Calibrate') && !pageText.includes('Baseline CSV'), 'Manual setup is still required')
   const screenshot = await command('Page.captureScreenshot', { format: 'png' })
   await writeFile(path.join(output, 'importer.png'), Buffer.from(screenshot.data, 'base64'))
   assert.equal(diagnostics.length, 0, diagnostics.join('\n'))

@@ -8,6 +8,8 @@ import { CardLine } from '@/components/CardLine'
 import { Spinner } from '@/components/Spinner.tsx'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import type { Snapshot } from '@/features/video-import/types'
+import VideoImportPage from '@/features/video-import/VideoImportPage'
 import { getCardByInternalId } from '@/lib/CardsDB'
 import type { Hashes } from '@/lib/hash'
 import { useCollection, useUpdateCards } from '@/services/collection/useCollection'
@@ -57,6 +59,8 @@ const Scan = () => {
   const [fallbackHashes, setFallbackHashes] = useState<Hashes>()
 
   const [extractedCards, setExtractedCards] = useState<ExtractedCard[]>([])
+  const [videoBusy, setVideoBusy] = useState(false)
+  const videoBaseline: Snapshot = new Map([...(ownedCards ?? [])].map(([id, entry]) => [id, { quantity: entry.amount_owned, collected: entry.collected }]))
   const [incrementedCards, setIncrementedCards] = useState<IncrementedCard[]>([])
 
   useEffect(() => {
@@ -199,9 +203,27 @@ const Scan = () => {
             <p className="text-neutral-400 mb-4 text-center">{t('description')}</p>
           </AlertDescription>
           <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/*" multiple className="w-full hidden" />
-          <Button variant="outline" className="mt-2" onClick={() => fileInputRef.current?.click()}>
+          <Button variant="outline" disabled={videoBusy} className="mt-2" onClick={() => fileInputRef.current?.click()}>
             {t('selectImages')}
           </Button>
+          <p className="text-neutral-400 mt-4">Or scan a collection video:</p>
+          <VideoImportPage
+            embedded
+            scanner={async (file, signal, onProgress) => {
+              const { scanVideo } = await import('@/services/scanner/VideoScanService')
+              return scanVideo(file, model, { ...fallbackHashes, ...hashes }, i18n.language, signal, onProgress)
+            }}
+            baseline={videoBaseline}
+            onBusyChange={setVideoBusy}
+            onApply={async (updates) => {
+              if (isLoading || !ownedCards) {
+                throw new Error('Wait for your collection to load, then try again.')
+              }
+              await updateCardsMutation.mutateAsync(
+                [...updates].map(([internal_id, entry]) => ({ internal_id, amount_owned: entry.quantity, collected: entry.collected })),
+              )
+            }}
+          />
         </div>
       )}
 

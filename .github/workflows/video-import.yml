@@ -7,6 +7,7 @@ on:
     paths:
       - frontend/src/features/video-import/**
       - frontend/src/services/scanner/**
+      - frontend/src/pages/scan/**
       - frontend/tests/video-import*
       - frontend/video-import.html
       - frontend/vite*.ts
@@ -64,17 +65,4 @@ jobs:
         with:
           name: video-import-browser-results
           path: tests/video-import/results/
-          if-no-files-found: ignore
-      - name: Prepare diagnostic formatting patch (never applied to the branch)
-        if: failure() && steps.install.outcome == 'success'
-        shell: bash
-        run: |
-          pnpm exec biome check --write frontend/src/features/video-import frontend/src/services/scanner/CardDetectionService.tsx frontend/tests/video-import.browser.ts frontend/tests/video-import.fixture.ts frontend/vite.config.ts frontend/vite.video-import.config.ts tests/video-import package.json || true
-          git diff --binary > /tmp/video-import-formatting.patch
-      - name: Preserve diagnostic patch
-        if: failure() && steps.install.outcome == 'success'
-        uses: actions/upload-artifact@v4
-        with:
-          name: video-import-formatting-patch
-          path: /tmp/video-import-formatting.patch
           if-no-files-found: ignore
