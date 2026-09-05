@@ -2,6 +2,7 @@ import { grayscale } from '../src/features/video-import/pixels'
 import { QuantityReader } from '../src/features/video-import/quantity'
 import { cropCanvas, openRecording } from '../src/features/video-import/video'
 import { checkAutomaticScan } from './video-import.automatic'
+import { checkDecoderRegressions } from './video-import.decoder'
 import { fixtureBase64 } from './video-import.fixture'
 
 declare global {
@@ -156,6 +157,7 @@ await check('corrupt video rejects without producing a collection', async () => 
   }
   assert(failed, 'corrupt media was accepted')
 })
+await checkDecoderRegressions(check, assert, file)
 await checkAutomaticScan(check, assert, file)
 results.done = true
 render()

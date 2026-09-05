@@ -1,4 +1,5 @@
 import { contains } from './geometry'
+import { waitForDecodedMedia } from './mediaReady'
 import { grayscale } from './pixels'
 import type { Rect } from './types'
 
@@ -6,63 +7,6 @@ export function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) {
     throw new DOMException('Import canceled. No collection changes were made.', 'AbortError')
   }
-}
-
-function waitForMedia(video: HTMLVideoElement, event: string, signal: AbortSignal | undefined, start: () => void, waitForFrame = false): Promise<void> {
-  throwIfAborted(signal)
-  return new Promise((resolve, reject) => {
-    let mediaReady = false
-    let frameReady = !waitForFrame
-    let frameCallback: number | undefined
-    const cleanup = () => {
-      clearTimeout(timeout)
-      if (frameCallback !== undefined) {
-        video.cancelVideoFrameCallback(frameCallback)
-      }
-      video.removeEventListener(event, done)
-      video.removeEventListener('error', failed)
-      signal?.removeEventListener('abort', aborted)
-    }
-    const finish = () => {
-      if (mediaReady && frameReady) {
-        cleanup()
-        resolve()
-      }
-    }
-    const done = () => {
-      mediaReady = true
-      finish()
-    }
-    const failed = () => {
-      cleanup()
-      reject(new Error(`Video could not be decoded (media error ${video.error?.code ?? 'unknown'}). Try an H.264 MP4 recording.`))
-    }
-    const aborted = () => {
-      cleanup()
-      reject(new DOMException('Import canceled.', 'AbortError'))
-    }
-    const timeout = setTimeout(() => {
-      cleanup()
-      reject(new Error(`Video decoding timed out while waiting for ${event}. Try a shorter recording or a supported codec.`))
-    }, 15_000)
-    video.addEventListener(event, done, { once: true })
-    video.addEventListener('error', failed, { once: true })
-    signal?.addEventListener('abort', aborted, { once: true })
-    try {
-      start()
-      if (waitForFrame) {
-        // loadeddata/seeked can precede the compositor's frame update. Waiting for
-        // both prevents drawImage from capturing black pixels or the previous seek.
-        frameCallback = video.requestVideoFrameCallback(() => {
-          frameReady = true
-          finish()
-        })
-      }
-    } catch (error) {
-      cleanup()
-      reject(error)
-    }
-  })
 }
 
 export interface Recording {
@@ -79,17 +23,17 @@ export async function openRecording(file: File, signal?: AbortSignal): Promise<R
     throw new Error('Choose a non-empty recording smaller than 2 GB.')
   }
   const video = document.createElement('video')
-  if (typeof video.requestVideoFrameCallback !== 'function') {
-    throw new Error('This browser cannot synchronize video frames. Use an up-to-date Chrome, Edge, Firefox or Safari.')
-  }
   video.preload = 'auto'
   video.muted = true
   video.playsInline = true
   const url = URL.createObjectURL(file)
   let disposed = false
+  let reading = false
+  const lifetime = new AbortController()
   const dispose = () => {
     if (!disposed) {
       disposed = true
+      lifetime.abort()
       video.pause()
       video.removeAttribute('src')
       video.load()
@@ -97,16 +41,16 @@ export async function openRecording(file: File, signal?: AbortSignal): Promise<R
     }
   }
   try {
-    await waitForMedia(
+    await waitForDecodedMedia({
       video,
-      'loadeddata',
-      signal,
-      () => {
+      description: 'loading the first frame',
+      signals: [signal, lifetime.signal],
+      ready: () => video.readyState >= 2 && !video.seeking && video.videoWidth > 0 && video.videoHeight > 0,
+      start: () => {
         video.src = url
         video.load()
       },
-      true,
-    )
+    })
     const { duration, videoWidth: width, videoHeight: height } = video
     if (!Number.isFinite(duration) || duration <= 0 || duration > 1800) {
       throw new Error('The recording must have a seekable duration of at most 30 minutes. Export a regular MP4 if duration metadata is missing.')
@@ -130,24 +74,30 @@ export async function openRecording(file: File, signal?: AbortSignal): Promise<R
         if (disposed || !Number.isFinite(time)) {
           throw new Error('Recording is closed or timestamp is invalid.')
         }
-        const target = Math.max(0, Math.min(time, Math.max(0, duration - 0.001)))
-        if (Math.abs(video.currentTime - target) > 0.001 || video.seeking) {
-          await waitForMedia(
-            video,
-            'seeked',
-            frameSignal,
-            () => {
-              video.currentTime = target
-            },
-            true,
-          )
+        if (reading) {
+          throw new Error('A frame is already being decoded. Read recording frames sequentially.')
         }
-        if (video.readyState < 2) {
-          await waitForMedia(video, 'loadeddata', frameSignal, () => {})
+        reading = true
+        try {
+          const target = Math.max(0, Math.min(time, Math.max(0, duration - 0.001)))
+          if (Math.abs(video.currentTime - target) > 0.001 || video.seeking || video.readyState < 2) {
+            await waitForDecodedMedia({
+              video,
+              description: `seeking to ${target.toFixed(3)}s`,
+              signals: [frameSignal, lifetime.signal],
+              ready: () => video.readyState >= 2 && !video.seeking && Math.abs(video.currentTime - target) <= 0.001,
+              start: () => {
+                video.currentTime = target
+              },
+            })
+          }
+          throwIfAborted(frameSignal)
+          throwIfAborted(lifetime.signal)
+          context.drawImage(video, 0, 0, width, height)
+          return canvas
+        } finally {
+          reading = false
         }
-        throwIfAborted(frameSignal)
-        context.drawImage(video, 0, 0, width, height)
-        return canvas
       },
       dispose,
     }
