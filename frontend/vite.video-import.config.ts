@@ -1,10 +1,11 @@
 import path from 'node:path'
+import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
 // Independent entry: no account bootstrap, backend settings, analytics or local CA installation.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: { '@': path.resolve(import.meta.dirname, './src') },
   },

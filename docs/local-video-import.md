@@ -18,7 +18,13 @@ pnpm dev:video-import
 
 Open `/video-import.html` at the local address printed by Vite. Node.js 22+ is required.
 After recognition, review the results and press **Update selected cards** in the tracker, or **Export CSV** in the standalone page.
-Clear results are selected automatically. Details and corrections are collapsed; no global confirmation checkbox or setup wizard is required.
+Clear results are selected automatically. The upload panel, neutral theme, buttons, spinner, alerts, and responsive result cards now match the original image scanner.
+Captured and reference cards are visible side by side, with match scores, plus/minus owned-total controls, and click-to-include/exclude.
+Only alternate matches and extra evidence are collapsed. No global confirmation checkbox or setup wizard is required.
+
+The standalone entry imports the same `index.css` and Tailwind pipeline as the main application, not a separate importer theme.
+Image scanning and video scanning share `ScanPresentation.tsx`; their different increment/owned-total semantics remain in their respective callers.
+Use **Scan more** to return to the upload panel. Successful tracker writes show the confirmation state; failures keep your results available for retry.
 
 ## Counts are owned totals, not video-frame counts
 
@@ -62,6 +68,8 @@ pnpm lint
 
 The browser suite uses synthetic digits and an actual H.264 video, tests the two-step React UI, downloads, cancellation/retry, and bundled-model inference on blank frames.
 Deterministic identity matches test pipeline/UI behavior, not real-card recognition accuracy.
+Presentation checks compare image/video styles at desktop, tablet and mobile widths and capture screenshots of standalone and embedded results.
+Their card artwork is synthetic test data; private recordings are not used in CI.
 The automatic badge locator is heuristic; synthetic tests are not a claim that every Pocket layout or real recording has been validated.
 
 ## End-to-end acceptance

@@ -1,5 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
-import { allCards } from '@/lib/CardsDB'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { Spinner } from '@/components/Spinner'
+import { scanActionClass, scanGridClass, scanPanelClass } from '@/components/scanner/ScanPresentation'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { allCards, getCardByInternalId } from '@/lib/CardsDB'
 import type { VideoScanResult } from '@/services/scanner/VideoScanService'
 import { exportCsv } from './csv'
 import { CardOptions, ReviewRow } from './ReviewRow'
@@ -26,12 +30,16 @@ export default function VideoImportPage({
   onApply,
   embedded = false,
   onBusyChange,
+  imageAction,
+  language = 'en-US',
 }: {
   scanner?: Scanner
   baseline?: Snapshot
   onApply?: (updates: Snapshot) => Promise<void>
   embedded?: boolean
   onBusyChange?: (busy: boolean) => void
+  imageAction?: ReactNode
+  language?: string
 }) {
   const [file, setFile] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
@@ -41,6 +49,7 @@ export default function VideoImportPage({
   const [result, setResult] = useState<VideoScanResult | null>(null)
   const [decisions, setDecisions] = useState(new Map<string, ReviewDecision>())
   const [page, setPage] = useState(0)
+  const [applied, setApplied] = useState<Snapshot | null>(null)
   const controller = useRef<AbortController | null>(null)
   const applying = useRef(false)
   const mounted = useRef(true)
@@ -65,6 +74,7 @@ export default function VideoImportPage({
     setError('')
     setMessage('')
     setResult(null)
+    setApplied(null)
     setProgress(null)
     setPage(0)
     try {
@@ -80,7 +90,7 @@ export default function VideoImportPage({
       const initial = initialDecisions(scanned.groups)
       for (const decision of initial.values()) {
         const previous = decision.internalId === null ? undefined : baseline.get(decision.internalId)
-        decision.selected = decision.quantity !== '' && (!previous || Number(decision.quantity) >= previous.quantity)
+        decision.selected = decision.internalId !== null && decision.quantity !== '' && (!previous || Number(decision.quantity) >= previous.quantity)
       }
       setDecisions(initial)
       setResult(scanned)
@@ -123,6 +133,7 @@ export default function VideoImportPage({
       await onApply(updates)
       if (mounted.current) {
         setMessage(`Updated ${updates.size} cards. Unseen cards were left unchanged.`)
+        setApplied(updates)
         setResult(null)
         setDecisions(new Map())
       }
@@ -138,122 +149,166 @@ export default function VideoImportPage({
     }
   }
 
+  const reset = () => {
+    if (busy) {
+      return
+    }
+    setFile(null)
+    setResult(null)
+    setApplied(null)
+    setDecisions(new Map())
+    setPage(0)
+    setProgress(null)
+    setError('')
+    setMessage('')
+  }
+  const matches = new Map(result?.cards.map((match) => [match.matchedCard.card.internal_id, match]))
+
   return (
-    <section className={embedded ? 'w-full' : 'video-import'} aria-label="Video scanner">
-      {!embedded && (
-        <header className="page-header">
-          <h1>Scan a video</h1>
-          <p>Choose a video, then press Scan. Cards and owned quantities are read automatically.</p>
-        </header>
+    <section className={embedded ? 'flex flex-col w-full gap-2' : scanPanelClass} aria-label="Video scanner">
+      {!result && !applied && (
+        <VideoScanControls
+          file={file}
+          onFileChange={(value) => {
+            setFile(value)
+            setError('')
+            setMessage('')
+            setDecisions(new Map())
+          }}
+          onScan={scan}
+          busy={busy}
+          onCancel={() => controller.current?.abort()}
+          progress={progress}
+          imageAction={imageAction}
+        />
       )}
-      <VideoScanControls
-        file={file}
-        onFileChange={(value) => {
-          setFile(value)
-          setError('')
-          setMessage('')
-          setResult(null)
-          setDecisions(new Map())
-        }}
-        onScan={scan}
-        busy={busy}
-        onCancel={() => controller.current?.abort()}
-        progress={progress}
-      />
-      <p className="muted">No calibration, layout file or baseline CSV required. Your video stays in this browser.</p>
       {error && (
-        <p className="error" role="alert">
-          {error}
+        <Alert variant="destructive">
+          <AlertTitle>Scan could not be completed</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {message && !applied && (
+        <p className="text-center text-sm text-neutral-400" role="status">
+          {message}
         </p>
       )}
-      {message && <p role="status">{message}</p>}
-      {result && (
-        <fieldset disabled={busy}>
-          <h2>Found {result.groups.length} cards</h2>
-          <p>Owned totals, not additions. Repeated frames do not add copies. {updates.size} cards selected.</p>
-          <p className="muted">Unreadable or conflicting quantities stay unselected. Check matches below before applying or exporting.</p>
-          <div className="button-row">
-            {onApply && (
-              <button type="button" className="primary" disabled={!updates.size || !!validationError} onClick={apply}>
-                Update selected cards
-              </button>
-            )}
-            <button
-              type="button"
-              className="primary"
-              disabled={!updates.size || !!validationError}
-              onClick={() => downloadText('video-collection.csv', exportCsv(updates, allCards), 'text/csv;charset=utf-8')}
-            >
-              Export CSV
-            </button>
-            <button
-              type="button"
-              disabled={!!validationError}
-              onClick={() =>
-                downloadText(
-                  'video-collection.json',
-                  JSON.stringify(
-                    {
-                      version: 2,
-                      mode: 'ownership-snapshot',
-                      partial: true,
-                      sampledFrames: result.sampled,
-                      duration: result.duration,
-                      entries: [...updates].map(([internalId, entry]) => ({ internalId, ...entry })),
-                      unresolved: result.groups
-                        .filter((group) => !decisions.get(group.key)?.selected)
-                        .map((group) => ({ internalId: group.internalId, quantities: group.quantities, hasLowerBound: group.hasLowerBound })),
-                    },
-                    null,
-                    2,
-                  ),
-                  'application/json',
-                )
-              }
-            >
-              Export JSON
-            </button>
-          </div>
-          {!embedded && (
-            <p className="muted">
-              CSV contains selected, observed cards only—not a complete collection backup. Do not use a destination’s “clear collection” option.
-            </p>
-          )}
-          {validationError && (
-            <p className="error" role="alert">
-              {validationError}
-            </p>
-          )}
+      {applied && (
+        <div className="flex flex-col w-full max-w-lg mx-auto">
+          <p className="text-xl text-center mb-4" role="status">
+            {message}
+          </p>
+          <ul className="flex flex-col gap-2 mb-8">
+            {[...applied].map(([id, entry]) => (
+              <li key={id} className="flex gap-2 rounded bg-zinc-800 p-1">
+                <span className="mr-auto">{getCardByInternalId(id)?.name}</span>
+                <span className="text-neutral-400">×{entry.quantity}</span>
+              </li>
+            ))}
+          </ul>
+          <Button onClick={reset}>Scan more</Button>
+        </div>
+      )}
+      {result && busy && (
+        <Alert role="status">
+          <AlertDescription className="flex items-center space-x-2">
+            <Spinner size="inline" />
+            <p>Updating your collection…</p>
+          </AlertDescription>
+        </Alert>
+      )}
+      {result && !busy && (
+        <>
+          <h2 className="text-center text-xl">Found {result.groups.length} cards</h2>
+          <p className="text-center text-sm text-neutral-400 px-2">Adjust the owned total for matched cards. Click an image to exclude or include a card.</p>
+          <p className="text-center text-xs text-neutral-500 px-2">
+            {updates.size} selected · Totals replace counts, not add copies. Unreadable quantities are excluded.
+          </p>
           <CardOptions />
-          {result.groups.slice(page * 24, (page + 1) * 24).map((group) => (
-            <details key={group.key} className="review-row">
-              <summary>
-                {allCards.find((card) => card.internal_id === group.internalId)?.name ?? 'Unresolved card'} —{' '}
-                {decisions.get(group.key)?.quantity || 'quantity needs review'}
-                {decisions.get(group.key)?.selected ? ' · selected' : ' · excluded'}
-              </summary>
+          <div className={scanGridClass} data-scan-results>
+            {result.groups.slice(page * 24, (page + 1) * 24).map((group) => (
               <ReviewRow
+                key={group.key}
                 group={group}
                 decision={decisions.get(group.key) as ReviewDecision}
                 baseline={baseline}
+                language={language}
+                match={group.internalId === null ? undefined : matches.get(group.internalId)}
                 onChange={(decision) => setDecisions((previous) => new Map(previous).set(group.key, decision))}
               />
-            </details>
-          ))}
+            ))}
+          </div>
           {result.groups.length > 24 && (
-            <div className="button-row">
-              <button type="button" disabled={page === 0} onClick={() => setPage((value) => value - 1)}>
+            <nav className="flex items-center justify-center gap-3 my-2" aria-label="Scan result pages">
+              <Button variant="outline" disabled={page === 0} onClick={() => setPage((value) => value - 1)}>
                 Previous
-              </button>
-              <span>
+              </Button>
+              <span className="text-sm">
                 Page {page + 1} / {Math.ceil(result.groups.length / 24)}
               </span>
-              <button type="button" disabled={(page + 1) * 24 >= result.groups.length} onClick={() => setPage((value) => value + 1)}>
+              <Button variant="outline" disabled={(page + 1) * 24 >= result.groups.length} onClick={() => setPage((value) => value + 1)}>
                 Next
-              </button>
-            </div>
+              </Button>
+            </nav>
           )}
-        </fieldset>
+          {validationError && (
+            <Alert variant="destructive">
+              <AlertDescription>{validationError}</AlertDescription>
+            </Alert>
+          )}
+          {onApply && (
+            <Button className={scanActionClass} disabled={!updates.size || !!validationError} onClick={apply}>
+              Update selected cards
+            </Button>
+          )}
+          <Button
+            variant={onApply ? 'outline' : 'default'}
+            className={scanActionClass}
+            disabled={!updates.size || !!validationError}
+            onClick={() => downloadText('video-collection.csv', exportCsv(updates, allCards), 'text/csv;charset=utf-8')}
+          >
+            Export CSV
+          </Button>
+          <Button variant="outline" className={scanActionClass} onClick={reset}>
+            Scan more
+          </Button>
+          <details className="text-sm text-neutral-400 px-2 my-2">
+            <summary className="cursor-pointer text-center">Additional export options</summary>
+            <div className="flex flex-col gap-2 mt-2">
+              <Button
+                variant="outline"
+                className={scanActionClass}
+                disabled={!!validationError}
+                onClick={() =>
+                  downloadText(
+                    'video-collection.json',
+                    JSON.stringify(
+                      {
+                        version: 2,
+                        mode: 'ownership-snapshot',
+                        partial: true,
+                        sampledFrames: result.sampled,
+                        duration: result.duration,
+                        entries: [...updates].map(([internalId, entry]) => ({ internalId, ...entry })),
+                        unresolved: result.groups
+                          .filter((group) => !decisions.get(group.key)?.selected)
+                          .map((group) => ({ internalId: group.internalId, quantities: group.quantities, hasLowerBound: group.hasLowerBound })),
+                      },
+                      null,
+                      2,
+                    ),
+                    'application/json',
+                  )
+                }
+              >
+                Export JSON
+              </Button>
+              <p className="text-xs text-center">
+                Exports contain selected cards only, not a complete backup. Do not clear your collection when importing them.
+              </p>
+            </div>
+          </details>
+        </>
       )}
     </section>
   )

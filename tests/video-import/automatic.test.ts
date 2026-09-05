@@ -113,3 +113,17 @@ test('standalone scan has no calibration or mandatory baseline setup', () => {
   assert.match(code, /<VideoScanControls/)
   assert.doesNotMatch(code, /<Calibration|loadBaseline|setExampleQuantity|readBaseline|useCollection/)
 })
+
+test('image and video share the same result layout and tile component', () => {
+  for (const file of ['frontend/src/pages/scan/Scan.tsx', 'frontend/src/features/video-import/VideoImportPage.tsx']) {
+    assert.match(readFileSync(file, 'utf8'), /scanGridClass/)
+    assert.match(readFileSync(file, 'utf8'), /scanPanelClass/)
+  }
+  for (const file of ['frontend/src/pages/scan/Scan.tsx', 'frontend/src/features/video-import/ReviewRow.tsx']) {
+    assert.match(readFileSync(file, 'utf8'), /<ScanMatchCard/)
+  }
+  const entry = readFileSync('frontend/src/features/video-import/main.tsx', 'utf8')
+  assert.match(entry, /index\.css/)
+  assert.doesNotMatch(entry, /video-import\.css/)
+  assert.match(readFileSync('frontend/vite.video-import.config.ts', 'utf8'), /tailwindcss\(\)/)
+})

@@ -9,6 +9,7 @@ import { scanFrames } from '../src/features/video-import/scanFrames'
 import VideoImportPage from '../src/features/video-import/VideoImportPage'
 import { allCards } from '../src/lib/CardsDB'
 import type { ExtractedCard } from '../src/services/scanner/CardDetectionService'
+import '../src/index.css'
 
 type Check = (name: string, work: () => void | Promise<void>) => Promise<void>
 type Assert = (condition: unknown, message: string) => void
@@ -152,6 +153,9 @@ export async function checkAutomaticScan(check: Check, assert: Assert, file: Fil
     return found
   }
   const choose = (recording: File) => {
+    if (!host.querySelector('input[type="file"]')) {
+      flushSync(() => button('Scan more').click())
+    }
     const input = host.querySelector<HTMLInputElement>('input[type="file"]')
     if (!input) {
       throw new Error('Missing video input')
@@ -174,7 +178,32 @@ export async function checkAutomaticScan(check: Check, assert: Assert, file: Fil
       assert(calls === 1, 'scan did not run exactly once')
       assert(!host.querySelector('canvas'), 'manual calibration canvas is still present')
       assert(!host.querySelector('input[type="number"]'), 'calibration coordinates are still required')
-      assert(host.textContent?.includes('— 3'), 'owned totals were not populated automatically')
+      assert(host.querySelector<HTMLInputElement>('input[inputmode="numeric"]')?.value === '3', 'owned totals were not populated automatically')
+      assert(host.querySelectorAll('[data-scan-card]').length === 2, 'image-style result cards were not rendered')
+      assert(
+        host.querySelectorAll('[data-scan-card] button[aria-pressed] img').length === 4,
+        'captured and reference previews must be visible without expanding details',
+      )
+    })
+    await check('result images toggle selection without losing the owned quantity', async () => {
+      const tile = host.querySelector<HTMLElement>('[data-scan-card]') as HTMLElement
+      const toggle = () => tile.querySelector<HTMLButtonElement>('button[aria-pressed]') as HTMLButtonElement
+      assert(toggle().getAttribute('aria-pressed') === 'true', 'known total should initially be selected')
+      flushSync(() => toggle().click())
+      assert(toggle().getAttribute('aria-pressed') === 'false', 'image click did not exclude the card')
+      assert(tile.querySelector<HTMLInputElement>('input[inputmode="numeric"]')?.value === '3', 'excluding a card destroyed its detected total')
+      flushSync(() => toggle().click())
+      assert(toggle().getAttribute('aria-pressed') === 'true', 'image click did not re-include the card')
+      assert(tile.querySelector<HTMLInputElement>('input[inputmode="numeric"]')?.value === '3', 're-including guessed a new quantity')
+    })
+    await check('plus and minus adjust owned totals with the original image-scan buttons', () => {
+      const tile = host.querySelector<HTMLElement>('[data-scan-card]') as HTMLElement
+      const more = tile.querySelector<HTMLButtonElement>('button[aria-label^="Increase"]') as HTMLButtonElement
+      const less = tile.querySelector<HTMLButtonElement>('button[aria-label^="Decrease"]') as HTMLButtonElement
+      flushSync(() => more.click())
+      assert(tile.querySelector<HTMLInputElement>('input[inputmode="numeric"]')?.value === '4', 'plus must adjust the total')
+      flushSync(() => less.click())
+      assert(tile.querySelector<HTMLInputElement>('input[inputmode="numeric"]')?.value === '3', 'minus must restore the total')
     })
     await check('CSV download contains actual scan data and the correct filename', async () => {
       const original = HTMLAnchorElement.prototype.click
@@ -203,6 +232,12 @@ export async function checkAutomaticScan(check: Check, assert: Assert, file: Fil
         contents = fetch(this.href).then((response) => response.text())
       }
       try {
+        const additional = [...host.querySelectorAll('details')].find(
+          (element) => element.querySelector('summary')?.textContent === 'Additional export options',
+        )
+        if (additional) {
+          additional.open = true
+        }
         button('Export JSON').click()
         const data = JSON.parse((await contents) ?? '{}')
         assert(filename === 'video-collection.json', 'wrong JSON filename')
@@ -273,7 +308,7 @@ export async function checkAutomaticScan(check: Check, assert: Assert, file: Fil
       flushSync(() => button('Scan').click())
       await until(() => host.textContent?.includes('Found 2 cards') === true)
       assert(calls === previousCalls + 1, 'rescan did not run exactly once')
-      assert(host.textContent?.includes('— 3'), 'owned quantity changed when re-scanning')
+      assert(host.querySelector<HTMLInputElement>('input[inputmode="numeric"]')?.value === '3', 'owned quantity changed when re-scanning')
     })
   } finally {
     flushSync(() => root.unmount())

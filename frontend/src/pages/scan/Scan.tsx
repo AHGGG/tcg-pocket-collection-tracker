@@ -1,11 +1,12 @@
 import type { GraphModel } from '@tensorflow/tfjs'
 import i18n from 'i18next'
-import { Minus, Plus, SquareCheck, SquareX } from 'lucide-react'
+import { Minus, Plus } from 'lucide-react'
 import type { ChangeEvent, Dispatch, SetStateAction } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { CardLine } from '@/components/CardLine'
 import { Spinner } from '@/components/Spinner.tsx'
+import { ScanMatchCard, scanGridClass, scanPanelClass } from '@/components/scanner/ScanPresentation'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import type { Snapshot } from '@/features/video-import/types'
@@ -196,35 +197,34 @@ const Scan = () => {
   }
 
   return (
-    <div className="flex flex-col mx-auto max-w-[900px] p-1 sm:p-2 gap-2 rounded-lg border-1 border-neutral-700 border-solid">
+    <div className={scanPanelClass}>
       {state === State.UploadImages && (
-        <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-md">
-          <AlertDescription>
-            <p className="text-neutral-400 mb-4 text-center">{t('description')}</p>
-          </AlertDescription>
-          <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/*" multiple className="w-full hidden" />
-          <Button variant="outline" disabled={videoBusy} className="mt-2" onClick={() => fileInputRef.current?.click()}>
-            {t('selectImages')}
-          </Button>
-          <p className="text-neutral-400 mt-4">Or scan a collection video:</p>
-          <VideoImportPage
-            embedded
-            scanner={async (file, signal, onProgress) => {
-              const { scanVideo } = await import('@/services/scanner/VideoScanService')
-              return scanVideo(file, model, { ...fallbackHashes, ...hashes }, i18n.language, signal, onProgress)
-            }}
-            baseline={videoBaseline}
-            onBusyChange={setVideoBusy}
-            onApply={async (updates) => {
-              if (isLoading || !ownedCards) {
-                throw new Error('Wait for your collection to load, then try again.')
-              }
-              await updateCardsMutation.mutateAsync(
-                [...updates].map(([internal_id, entry]) => ({ internal_id, amount_owned: entry.quantity, collected: entry.collected })),
-              )
-            }}
-          />
-        </div>
+        <VideoImportPage
+          embedded
+          language={i18n.language}
+          imageAction={
+            <>
+              <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/*" multiple className="w-full hidden" />
+              <Button variant="outline" disabled={videoBusy} onClick={() => fileInputRef.current?.click()}>
+                {t('selectImages')}
+              </Button>
+            </>
+          }
+          scanner={async (file, signal, onProgress) => {
+            const { scanVideo } = await import('@/services/scanner/VideoScanService')
+            return scanVideo(file, model, { ...fallbackHashes, ...hashes }, i18n.language, signal, onProgress)
+          }}
+          baseline={videoBaseline}
+          onBusyChange={setVideoBusy}
+          onApply={async (updates) => {
+            if (isLoading || !ownedCards) {
+              throw new Error('Wait for your collection to load, then try again.')
+            }
+            await updateCardsMutation.mutateAsync(
+              [...updates].map(([internal_id, entry]) => ({ internal_id, amount_owned: entry.quantity, collected: entry.collected })),
+            )
+          }}
+        />
       )}
 
       {state === State.UploadingImages && (
@@ -242,7 +242,7 @@ const Scan = () => {
           <p className="text-center text-sm text-neutral-400 px-2">
             Select the increment amount for the matched cards. Click the image to quickly exclude or include a card.
           </p>
-          <div className="grid md:grid-cols-3 sm:grid-cols-2 grid-cols-1 gap-2 my-2">
+          <div className={scanGridClass}>
             {extractedCards.map((card, index) => {
               const isSelected = card.increment !== 0
               const onIncrementChange = (inc: string) => {
@@ -253,9 +253,11 @@ const Scan = () => {
               const newAmount = currentAmount + card.increment
               const canDecrement = newAmount > 0
               return (
-                <div key={index} className={`border-3 rounded-lg p-2 ${card.increment > 0 && 'border-green-400'} ${card.increment < 0 && 'border-red-400'}`}>
-                  <h3 className="flex mb-2">
-                    {isSelected ? <SquareCheck /> : <SquareX />}
+                <ScanMatchCard
+                  key={index}
+                  selected={isSelected}
+                  tone={card.increment < 0 ? 'decrease' : 'increase'}
+                  title={
                     <CardLine
                       className="bg-transparent"
                       card_id={card.matchedCard.card.card_id}
@@ -264,39 +266,38 @@ const Scan = () => {
                       details="hidden"
                       increment={cardIncrements.get(card.matchedCard.card.internal_id)}
                     />
-                  </h3>
-                  <div className="flex items-center gap-1 mb-2">
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => onIncrementChange(String(card.increment - 1))}
-                      disabled={!canDecrement}
-                    >
-                      <Minus className="h-4 w-4" />
-                    </Button>
-                    <div className="min-w-8 text-center font-semibold select-none">{card.increment > 0 ? `+${card.increment}` : card.increment}</div>
-                    <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => onIncrementChange(String(card.increment + 1))}>
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  <button
-                    type="button"
-                    className={`flex w-full cursor-pointer gap-2 ${!isSelected && 'grayscale'} transition-all duration-200`}
-                    onClick={() => (isSelected ? onIncrementChange('0') : onIncrementChange('+1'))}
-                  >
-                    <div className="w-1/2 flex flex-col gap-1 justify-between">
-                      <img src={card.imageUrl} alt={`Detected card ${index + 1}`} className="w-full h-auto object-contain" />
-                      <div className="bg-gray-500 text-white text-xs px-1 py-0.5 text-center">{t('extractedCard')}</div>
-                    </div>
-                    <div className="w-1/2 flex flex-col gap-1 justify-between">
-                      <img src={card.resolvedImageUrl} alt="Best match" className="w-full h-auto object-contain" />
-                      <div className="bg-green-600 text-white text-xs px-1 py-0.5 text-center">
-                        {t('percentMatch', { match: (card.matchedCard.similarity * 100).toFixed(0) })}
-                      </div>
-                    </div>
-                  </button>
-                </div>
+                  }
+                  controls={
+                    <>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => onIncrementChange(String(card.increment - 1))}
+                        disabled={!canDecrement}
+                        aria-label={`Decrease increment for ${card.matchedCard.card.name}`}
+                      >
+                        <Minus className="h-4 w-4" />
+                      </Button>
+                      <div className="min-w-8 text-center font-semibold select-none">{card.increment > 0 ? `+${card.increment}` : card.increment}</div>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-8 w-8"
+                        aria-label={`Increase increment for ${card.matchedCard.card.name}`}
+                        onClick={() => onIncrementChange(String(card.increment + 1))}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </>
+                  }
+                  extractedImage={card.imageUrl}
+                  referenceImage={card.resolvedImageUrl}
+                  extractedLabel={t('extractedCard')}
+                  referenceLabel={t('percentMatch', { match: (card.matchedCard.similarity * 100).toFixed(0) })}
+                  toggleLabel={`${isSelected ? 'Exclude' : 'Include'} ${card.matchedCard.card.name}`}
+                  onToggle={() => (isSelected ? onIncrementChange('0') : onIncrementChange('+1'))}
+                />
               )
             })}
           </div>

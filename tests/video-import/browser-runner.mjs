@@ -187,17 +187,89 @@ try {
     120_000,
   )
   assert.equal(results.failed, 0, results.messages.join('\n'))
+  const viewport = async (width) => {
+    await command('Emulation.setDeviceMetricsOverride', { width, height: 960, deviceScaleFactor: 1, mobile: false })
+    await pause(100)
+  }
+  const styleMeasurements = () =>
+    evaluate(`(() => {
+    const grid = document.querySelector('[data-scan-results]');
+    const tile = grid.querySelector('[data-scan-card]');
+    const style = getComputedStyle(tile);
+    const preview = tile.querySelector('button[aria-pressed]');
+    return {
+      columns: getComputedStyle(grid).gridTemplateColumns.split(' ').length,
+      gap: getComputedStyle(grid).gap,
+      background: getComputedStyle(document.body).backgroundColor,
+      color: getComputedStyle(document.body).color,
+      radius: style.borderRadius,
+      padding: style.padding,
+      border: style.borderColor,
+      imageWidth: preview.children[0].getBoundingClientRect().width,
+      referenceWidth: preview.children[1].getBoundingClientRect().width,
+      overflow: document.documentElement.scrollWidth > window.innerWidth,
+      nestedUpload: !!grid.closest('.border-dashed'),
+    };
+  })()`)
+  const capture = async (name) => {
+    const screenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
+    await writeFile(path.join(output, name), Buffer.from(screenshot.data, 'base64'))
+  }
+  const openFixture = async (mode) => {
+    await command('Page.navigate', { url: `${origin}/tests/video-import.presentation.html?mode=${mode}` })
+    if (mode !== 'image') {
+      await until(() => evaluate(`!!document.querySelector('input[type="file"]')`), 'load video presentation fixture')
+      await evaluate(`(() => {
+        const input = document.querySelector('input[type="file"]');
+        const transfer = new DataTransfer(); transfer.items.add(new File(['synthetic'], 'ui-fixture.mp4', {type: 'video/mp4'}));
+        input.files = transfer.files; input.dispatchEvent(new Event('change', { bubbles: true }));
+      })()`)
+      await until(() => evaluate(`[...document.querySelectorAll('button')].some(b => b.textContent === 'Scan' && !b.disabled)`), 'enable Scan')
+      await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent === 'Scan').click()`)
+    }
+    await until(() => evaluate(`!!document.querySelector('[data-scan-results]')`), 'render result grid')
+    await evaluate(`document.querySelectorAll('[data-scan-card] img').forEach(i => { i.loading = 'eager' })`)
+    await until(() => evaluate(`[...document.querySelectorAll('[data-scan-card] img')].every(i => i.complete && i.naturalWidth)`), 'load result previews')
+  }
+  const presentation = []
+  for (const [label, width, columns] of [
+    ['desktop', 1280, 3],
+    ['tablet', 700, 2],
+    ['mobile', 390, 1],
+  ]) {
+    await viewport(width)
+    await openFixture('image')
+    const image = await styleMeasurements()
+    await openFixture('video')
+    const video = await styleMeasurements()
+    assert.equal(video.columns, columns, `${label}: wrong video result columns`)
+    for (const key of ['columns', 'gap', 'background', 'color', 'radius', 'padding', 'border']) {
+      assert.equal(video[key], image[key], `${label}: image/video style mismatch in ${key}`)
+    }
+    assert.equal(video.background, 'rgb(24, 24, 24)', 'standalone is not using the original neutral theme')
+    assert.equal(video.overflow, false, `${label}: horizontal overflow`)
+    assert.equal(video.nestedUpload, false, 'results are still inside the upload panel')
+    assert.ok(Math.abs(video.imageWidth - video.referenceWidth) < 1, 'previews must be side-by-side with equal widths')
+    assert.equal(await evaluate(`document.querySelectorAll('[data-scan-card] button[aria-pressed="true"]').length`), 2, 'unreadable quantity was auto-selected')
+    await capture(`results-${label}.png`)
+    presentation.push({ label, width, image, video })
+  }
+  await viewport(1280)
+  await openFixture('embedded')
+  const embedded = await styleMeasurements()
+  assert.equal(embedded.nestedUpload, false, 'embedded results are inside a dashed upload box')
+  assert.equal(embedded.columns, 3, 'embedded results differ from standalone')
+  await capture('results-embedded.png')
   await command('Page.navigate', { url: `${origin}/video-import.html` })
-  await until(async () => (await evaluate('document.querySelector("h1")?.textContent')) === 'Scan a video', 'React importer smoke test')
+  await until(async () => await evaluate(`!!document.querySelector('[aria-label="Video scanner"]')`), 'React importer smoke test')
   const pageText = await evaluate('document.body.textContent')
-  assert.ok(pageText.includes('Choose a video, then press Scan.'), 'Importer did not render the simple upload flow')
+  assert.ok(pageText.includes('Choose a video, then press Scan'), 'Importer did not render the simple upload flow')
   assert.ok(!pageText.includes('Calibrate') && !pageText.includes('Baseline CSV'), 'Manual setup is still required')
-  const screenshot = await command('Page.captureScreenshot', { format: 'png' })
-  await writeFile(path.join(output, 'importer.png'), Buffer.from(screenshot.data, 'base64'))
+  await capture('importer.png')
   assert.equal(diagnostics.length, 0, diagnostics.join('\n'))
   const externalRequests = requests.filter((url) => /^https?:/.test(url) && new URL(url).origin !== origin)
   assert.deepEqual(externalRequests, [], 'Test pages made external network requests')
-  const report = { ...results, reactSmoke: 'passed', externalRequests, diagnostics }
+  const report = { ...results, reactSmoke: 'passed', presentation, embedded, externalRequests, diagnostics }
   await writeFile(path.join(output, 'browser.json'), `${JSON.stringify(report, null, 2)}\n`)
   console.log(JSON.stringify(report, null, 2))
 } finally {
