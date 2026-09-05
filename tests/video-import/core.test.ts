@@ -19,20 +19,31 @@ const cards: CatalogCard[] = [
   { internal_id: 103, card_id: 'T1-3', name: 'Example "Three"\nwith newline', expansion: 'T1', pack: 'test', rarity: '◊' },
 ]
 const validIds = new Set(cards.map((card) => card.internal_id))
-const baseline = new Map<number, OwnedEntry>([[101, { quantity: 2, collected: true }], [102, { quantity: 4, collected: true }]])
+const baseline = new Map<number, OwnedEntry>([
+  [101, { quantity: 2, collected: true }],
+  [102, { quantity: 4, collected: true }],
+])
 const update = (quantity = 3, internalId = 101, decreaseApproved = false) => ({ internalId, quantity, decreaseApproved })
 const csv = (rows: string) => `Id,InternalId,NumberOwned,Collected\n${rows}`
 const makeObservation = (value: number | null, index = 0, internalId: number | null = 101): Observation => ({
-  key: `observation-${index}`, timestamp: index, fingerprint: 'synthetic-hash', internalId,
-  candidates: [{ internalId: 101, similarity: 0.95 }, { internalId: 102, similarity: 0.7 }],
+  key: `observation-${index}`,
+  timestamp: index,
+  fingerprint: 'synthetic-hash',
+  internalId,
+  candidates: [
+    { internalId: 101, similarity: 0.95 },
+    { internalId: 102, similarity: 0.7 },
+  ],
   quantity: value === null ? { kind: 'unknown', reason: 'unreadable' } : { kind: 'exact', value, score: 0.99 },
-  cardImage: 'data:image/png;base64,synthetic-card', badgeImage: 'data:image/png;base64,synthetic-badge',
+  cardImage: 'data:image/png;base64,synthetic-card',
+  badgeImage: 'data:image/png;base64,synthetic-badge',
 })
 const layout = makeProfile(
   { x: 0, y: 0.1, width: 1, height: 0.8 },
   { x: 0.1, y: 0.2, width: 0.2, height: 0.25 },
   { x: 0.15, y: 0.46, width: 0.08, height: 0.025 },
-  0.5, 'dark',
+  0.5,
+  'dark',
 )
 
 test('quantity parser accepts zero and positive integers', () => {
@@ -56,8 +67,16 @@ test('unseen baseline entries remain unchanged', () => {
   assert.deepEqual(mergeSnapshot(baseline, [update()], validIds).get(102), baseline.get(102))
 })
 test('twenty sightings and repeated imports are idempotent', () => {
-  const once = mergeSnapshot(baseline, Array.from({ length: 20 }, () => update()), validIds)
-  const twice = mergeSnapshot(once, Array.from({ length: 20 }, () => update()), validIds)
+  const once = mergeSnapshot(
+    baseline,
+    Array.from({ length: 20 }, () => update()),
+    validIds,
+  )
+  const twice = mergeSnapshot(
+    once,
+    Array.from({ length: 20 }, () => update()),
+    validIds,
+  )
   assert.deepEqual(twice, once)
   assert.equal(twice.get(101)?.quantity, 3)
 })
@@ -90,9 +109,16 @@ test('unselected unknown observations never become zero-valued updates', () => {
   assert.throws(() => selectedUpdates(decisions), /Choose a card/)
 })
 test('CSV parser supports BOM, CRLF, commas, quotes and embedded newlines', () => {
-  assert.deepEqual(parseCsv('\uFEFFA,B\r\n"one, two","three ""quoted""\nlines"\r\n'), [['A', 'B'], ['one, two', 'three "quoted"\nlines']])
+  assert.deepEqual(parseCsv('\uFEFFA,B\r\n"one, two","three ""quoted""\nlines"\r\n'), [
+    ['A', 'B'],
+    ['one, two', 'three "quoted"\nlines'],
+  ])
 })
-test('empty trailing CSV lines are ignored', () => assert.deepEqual(parseCsv('A,B\n1,2\n\n'), [['A', 'B'], ['1', '2']]))
+test('empty trailing CSV lines are ignored', () =>
+  assert.deepEqual(parseCsv('A,B\n1,2\n\n'), [
+    ['A', 'B'],
+    ['1', '2'],
+  ]))
 test('malformed CSV quotes are rejected', () => {
   for (const value of ['A\n"unterminated', 'A\nword"bad', 'A\n"closed"bad']) {
     assert.throws(() => parseCsv(value), /quot/)
@@ -104,7 +130,8 @@ test('Collected FALSE is parsed as false, not a truthy string', () => {
   assert.deepEqual(readBaseline(csv('T1-1,101,0,FALSE'), cards).entries.get(101), { quantity: 0, collected: false })
 })
 test('invalid Collected text is rejected', () => assert.throws(() => readBaseline(csv('T1-1,101,0,nope'), cards), /Collected/))
-test('duplicate column names are rejected', () => assert.throws(() => readBaseline('Id,Id,InternalId,NumberOwned,Collected\nT1-1,T1-1,101,0,FALSE', cards), /duplicate/))
+test('duplicate column names are rejected', () =>
+  assert.throws(() => readBaseline('Id,Id,InternalId,NumberOwned,Collected\nT1-1,T1-1,101,0,FALSE', cards), /duplicate/))
 test('missing required columns are rejected', () => assert.throws(() => readBaseline('Id,NumberOwned\nT1-1,3', cards), /Missing/))
 test('incorrect row width is rejected', () => assert.throws(() => readBaseline(csv('T1-1,101,3,TRUE,extra'), cards), /columns/))
 test('empty CSV is rejected', () => assert.throws(() => readBaseline('', cards), /no collection rows/))
@@ -125,7 +152,11 @@ test('linked aliases with conflicting values require correction', () => {
   assert.throws(() => readBaseline(csv('T1-1,101,0,TRUE\nT2-1,101,0,FALSE'), cards), /Conflicting/)
 })
 test('CSV round trip preserves exact quantities and history flags', () => {
-  const data = new Map<number, OwnedEntry>([[101, { quantity: 0, collected: true }], [102, { quantity: 0, collected: false }], [103, { quantity: 12, collected: true }]])
+  const data = new Map<number, OwnedEntry>([
+    [101, { quantity: 0, collected: true }],
+    [102, { quantity: 0, collected: false }],
+    [103, { quantity: 12, collected: true }],
+  ])
   const text = exportCsv(data, cards)
   assert.deepEqual(readBaseline(text, cards).entries, data)
   assert.equal(parseCsv(text).length, 4)
@@ -182,7 +213,9 @@ test('capped quantities remain lower bounds, not exact counts', () => {
 })
 test('20 observations of quantity 3 reconcile to one suggestion of 3', () => {
   const store = new ObservationStore()
-  for (let i = 0; i < 20; i++) { store.add(makeObservation(3, i)) }
+  for (let i = 0; i < 20; i++) {
+    store.add(makeObservation(3, i))
+  }
   const [group] = store.values()
   assert.equal(store.values().length, 1)
   assert.equal(group.suggestedQuantity, 3)
@@ -192,7 +225,9 @@ test('20 observations of quantity 3 reconcile to one suggestion of 3', () => {
 })
 test('conflicting quantities are not resolved with maximum or majority', () => {
   const store = new ObservationStore()
-  for (const [index, count] of [3, 3, 8].entries()) { store.add(makeObservation(count, index)) }
+  for (const [index, count] of [3, 3, 8].entries()) {
+    store.add(makeObservation(count, index))
+  }
   assert.equal(store.values()[0].suggestedQuantity, null)
   assert.deepEqual(store.values()[0].quantities, [3, 8])
   assert.equal(store.values()[0].evidence.length, 2)
@@ -218,7 +253,9 @@ test('ambiguous card identity stays unresolved', () => {
 })
 test('evidence is bounded while conflicts remain explicit', () => {
   const store = new ObservationStore()
-  for (let i = 0; i < 20; i++) { store.add(makeObservation(i, i)) }
+  for (let i = 0; i < 20; i++) {
+    store.add(makeObservation(i, i))
+  }
   assert.equal(store.values()[0].evidence.length, 4)
   assert.equal(store.values()[0].quantities.length, 20)
   assert.equal(store.values()[0].suggestedQuantity, null)
@@ -243,9 +280,16 @@ test('JSON report preserves stable IDs and omits images by default', () => {
   const decisions = initialDecisions(groups)
   decisions.set(groups[0].key, { selected: true, internalId: 101, quantity: '3', decreaseApproved: false })
   const options = {
-    catalogueHash: 'test', cards, recording: { name: 'synthetic.mp4', size: 123, duration: 2, recordedAt: '2026-01-01T00:00:00Z' },
-    baselineName: 'synthetic.csv', profile: layout, stats: { sampled: 1, recognized: 1, duplicateFrames: 0, blurryFrames: 0, clippedCards: 0, gapTimestamps: [], elapsedSeconds: 1 },
-    groups, decisions, snapshot: mergeSnapshot(baseline, [update()], validIds), includeImages: false,
+    catalogueHash: 'test',
+    cards,
+    recording: { name: 'synthetic.mp4', size: 123, duration: 2, recordedAt: '2026-01-01T00:00:00Z' },
+    baselineName: 'synthetic.csv',
+    profile: layout,
+    stats: { sampled: 1, recognized: 1, duplicateFrames: 0, blurryFrames: 0, clippedCards: 0, gapTimestamps: [], elapsedSeconds: 1 },
+    groups,
+    decisions,
+    snapshot: mergeSnapshot(baseline, [update()], validIds),
+    includeImages: false,
   }
   const report = makeReport(options)
   assert.equal(report.completeCollectionVerified, false)
@@ -273,10 +317,15 @@ test('edge-touching quantity glyphs are rejected instead of reading a clipped nu
 })
 
 test('a calibrated quantity outside the scrolling grid is rejected', () => {
-  assert.throws(() => makeProfile(
-    { x: 0, y: 0.1, width: 1, height: 0.5 },
-    { x: 0.1, y: 0.2, width: 0.2, height: 0.25 },
-    { x: 0.15, y: 0.7, width: 0.08, height: 0.025 },
-    0.5, 'dark',
-  ), /collection area/)
+  assert.throws(
+    () =>
+      makeProfile(
+        { x: 0, y: 0.1, width: 1, height: 0.5 },
+        { x: 0.1, y: 0.2, width: 0.2, height: 0.25 },
+        { x: 0.15, y: 0.7, width: 0.08, height: 0.025 },
+        0.5,
+        'dark',
+      ),
+    /collection area/,
+  )
 })

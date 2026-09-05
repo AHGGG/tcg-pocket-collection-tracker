@@ -20,8 +20,8 @@ export interface ScanOptions {
 }
 
 function intersectionOverUnion(a: Rect, b: Rect): number {
-  const intersection = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) *
-    Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y))
+  const intersection =
+    Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y))
   return intersection / (a.width * a.height + b.width * b.height - intersection)
 }
 
@@ -93,10 +93,12 @@ export async function scanRecording(options: ScanOptions): Promise<{ groups: Rev
         const area = cropCanvas(frame, grid)
         const detections = await detectCanvasFrame(model, area)
         throwIfAborted(signal)
-        return detections.filter((detection) => detection.confidence >= 50).map((detection) => {
-          const [[x1, y1], , [x2, y2]] = detection.points
-          return { x: x1 + grid.x, y: y1 + grid.y, width: x2 - x1, height: y2 - y1 }
-        })
+        return detections
+          .filter((detection) => detection.confidence >= 50)
+          .map((detection) => {
+            const [[x1, y1], , [x2, y2]] = detection.points
+            return { x: x1 + grid.x, y: y1 + grid.y, width: x2 - x1, height: y2 - y1 }
+          })
       }
       const calibrationFrame = await recording.frame(options.calibrationTime, signal)
       const expected = toPixels(profile.card, recording.width, recording.height)
@@ -105,13 +107,22 @@ export async function scanRecording(options: ScanOptions): Promise<{ groups: Rev
         throw new Error('The detector cannot find your marked example card. Choose a clear, fully visible card and recalibrate.')
       }
       const anchor = anchors[0]
-      const normalizedAnchor = { x: anchor.x / recording.width, y: anchor.y / recording.height, width: anchor.width / recording.width, height: anchor.height / recording.height }
+      const normalizedAnchor = {
+        x: anchor.x / recording.width,
+        y: anchor.y / recording.height,
+        width: anchor.width / recording.width,
+        height: anchor.height / recording.height,
+      }
       const originalBadge = badgeRect(profile.card, profile.badge)
       // Align quantity offsets with actual model bounds, rather than approximate mouse bounds.
       const effectiveProfile = makeProfile(profile.grid, normalizedAnchor, originalBadge, profile.frameAspect, profile.polarity)
       const quantityReader = new QuantityReader()
       if (options.exampleQuantity.trim()) {
-        quantityReader.learn(grayCanvas(cropCanvas(calibrationFrame, toPixels(originalBadge, recording.width, recording.height))), options.exampleQuantity.trim(), profile.polarity)
+        quantityReader.learn(
+          grayCanvas(cropCanvas(calibrationFrame, toPixels(originalBadge, recording.width, recording.height))),
+          options.exampleQuantity.trim(),
+          profile.polarity,
+        )
       }
       const calibrationSharpness = sharpness(grayCanvas(cropCanvas(calibrationFrame, grid, 128)))
       const store = new ObservationStore()
@@ -136,8 +147,14 @@ export async function scanRecording(options: ScanOptions): Promise<{ groups: Rev
             const quantityBox = badgeRect(box, effectiveProfile.badge)
             const ratio = box.width / box.height / (anchor.width / anchor.height)
             if (
-              !contains(grid, box) || !contains(grid, quantityBox) || box.width < anchor.width * 0.6 ||
-              box.width > anchor.width * 1.5 || ratio < 0.7 || ratio > 1.3 || quantityBox.height < 5 || quantityBox.width < 3
+              !contains(grid, box) ||
+              !contains(grid, quantityBox) ||
+              box.width < anchor.width * 0.6 ||
+              box.width > anchor.width * 1.5 ||
+              ratio < 0.7 ||
+              ratio > 1.3 ||
+              quantityBox.height < 5 ||
+              quantityBox.width < 3
             ) {
               stats.clippedCards++
               continue
@@ -145,10 +162,13 @@ export async function scanRecording(options: ScanOptions): Promise<{ groups: Rev
             const cardCanvas = cropCanvas(frame, box)
             const hash = calculatePerceptualHash(await imageToBuffers(cardCanvas.toDataURL('image/png')))
             throwIfAborted(signal)
-            const candidates: Candidate[] = references.map((reference) => ({
-              internalId: reference.internalId,
-              similarity: calculateSimilarity(hash, reference.hash),
-            })).sort((a, b) => b.similarity - a.similarity).slice(0, 3)
+            const candidates: Candidate[] = references
+              .map((reference) => ({
+                internalId: reference.internalId,
+                similarity: calculateSimilarity(hash, reference.hash),
+              }))
+              .sort((a, b) => b.similarity - a.similarity)
+              .slice(0, 3)
             const [best, next] = candidates
             const internalId = best.similarity >= 0.86 && best.similarity - next.similarity >= 0.025 ? best.internalId : null
             if (internalId !== null) {

@@ -1,7 +1,10 @@
 import type { CatalogCard, LayoutProfile, ReviewDecision, ReviewGroup, ScanStats, Snapshot } from './types'
 
 export async function catalogueFingerprint(cards: readonly CatalogCard[]): Promise<string> {
-  const data = cards.map((card) => `${card.card_id}:${card.internal_id}:${card.rarity}`).sort().join('\n')
+  const data = cards
+    .map((card) => `${card.card_id}:${card.internal_id}:${card.rarity}`)
+    .sort()
+    .join('\n')
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data))
   return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('')
 }

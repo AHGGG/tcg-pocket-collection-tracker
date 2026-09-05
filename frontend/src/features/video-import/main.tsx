@@ -10,9 +10,16 @@ if (!root) {
 }
 createRoot(root).render(
   <StrictMode>
-    <ErrorBoundary fallbackRender={({ error }) => (
-      <main className="video-import"><h1>The local importer stopped</h1><p>No collection changes were applied.</p><pre>{error instanceof Error ? error.message : 'Unexpected error'}</pre><a href="./video-import.html">Reload importer</a></main>
-    )}>
+    <ErrorBoundary
+      fallbackRender={({ error }) => (
+        <main className="video-import">
+          <h1>The local importer stopped</h1>
+          <p>No collection changes were applied.</p>
+          <pre>{error instanceof Error ? error.message : 'Unexpected error'}</pre>
+          <a href="./video-import.html">Reload importer</a>
+        </main>
+      )}
+    >
       <VideoImportPage />
     </ErrorBoundary>
   </StrictMode>,

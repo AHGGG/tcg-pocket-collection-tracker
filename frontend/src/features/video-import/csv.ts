@@ -118,7 +118,7 @@ export function readBaseline(text: string, cards: readonly CatalogCard[]): { ent
 function escapeField(value: string | number | boolean): string {
   const text = typeof value === 'boolean' ? (value ? 'TRUE' : 'FALSE') : String(value)
   // Catalogue text should not become spreadsheet formulas when the CSV is opened.
-  const safe = /^(?:\s*[=+@\-]|[\t\r])/.test(text) ? `'${text}` : text
+  const safe = /^(?:\s*[=+@-]|[\t\r])/.test(text) ? `'${text}` : text
   return /[",\r\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe
 }
 
