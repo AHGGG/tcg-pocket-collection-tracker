@@ -11,7 +11,7 @@
     "dev": "pnpm --filter frontend run dev",
     "dev:video-import": "pnpm --filter frontend exec vite --config vite.video-import.config.ts",
     "build:video-import": "pnpm --filter frontend exec vite build --config vite.video-import.config.ts",
-    "test:video-import": "tsx --test tests/video-import/core.test.ts tests/video-import/automatic.test.ts tests/video-import/media-ready.test.ts",
+    "test:video-import": "tsx --test tests/video-import/core.test.ts tests/video-import/automatic.test.ts tests/video-import/media-ready.test.ts tests/video-import/default-quantity.test.ts",
     "test:video-import:browser": "node tests/video-import/browser-runner.mjs",
     "build": "pnpm --filter frontend run build",
     "scraper": "tsx scripts/scraper.js && node scripts/download-packs.js && tsx scripts/generate-scan-hashes.ts && tsx scripts/generate-image-locales.ts && tsx scripts/sql/generate-cards-table.ts && pnpm lint:fix",

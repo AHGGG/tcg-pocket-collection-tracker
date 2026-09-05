@@ -310,6 +310,62 @@ export async function checkAutomaticScan(check: Check, assert: Assert, file: Fil
       assert(calls === previousCalls + 1, 'rescan did not run exactly once')
       assert(host.querySelector<HTMLInputElement>('input[inputmode="numeric"]')?.value === '3', 'owned quantity changed when re-scanning')
     })
+    await check('badge-less video results default to one and export without typing quantities', async () => {
+      const missingScanner: typeof scanner = async (...args) => {
+        const scanned = await scanner(...args)
+        return {
+          ...scanned,
+          groups: scanned.groups.map((group) => ({
+            ...group,
+            quantities: [],
+            suggestedQuantity: null,
+            hasUnknown: true,
+            evidence: group.evidence.map((observation) => ({ ...observation, quantity: { kind: 'unknown' as const, reason: 'No badge in compact view' } })),
+          })),
+        }
+      }
+      flushSync(() => renderPage(<VideoImportPage scanner={missingScanner} />))
+      choose(file)
+      flushSync(() => button('Scan').click())
+      await until(() => host.textContent?.includes('Found 2 cards') === true)
+      assert(host.querySelectorAll('button[aria-pressed="true"]').length === 2, 'missing counts were not preselected')
+      assert(host.querySelector<HTMLInputElement>('input[inputmode="numeric"]')?.value === '1', 'missing quantity is not one')
+      assert(host.textContent?.includes('default 1—not an exact count'), 'default was presented as a measured count')
+      assert(!button('Export CSV').disabled, 'CSV export is blocked')
+      const original = HTMLAnchorElement.prototype.click
+      let contents: Promise<string> | undefined
+      HTMLAnchorElement.prototype.click = function () {
+        contents = fetch(this.href).then((response) => response.text())
+      }
+      try {
+        button('Export CSV').click()
+        const text = await contents
+        assert(readBaseline(text ?? '', allCards).entries.get(allCards[0].internal_id)?.quantity === 1, 'CSV does not contain default one')
+        assert(text?.includes('QuantitySource') && text.includes('default-1'), 'default provenance is missing from the CSV')
+      } finally {
+        HTMLAnchorElement.prototype.click = original
+      }
+    })
+    await check('new collection data preserves higher totals for fallback rows without a new scan', async () => {
+      let appliedQuantity: number | undefined
+      const baseline = new Map([[allCards[0].internal_id, { quantity: 7, collected: true }]])
+      flushSync(() =>
+        renderPage(
+          <VideoImportPage
+            scanner={scanner}
+            baseline={baseline}
+            onApply={async (updates) => {
+              appliedQuantity = updates.get(allCards[0].internal_id)?.quantity
+            }}
+          />,
+        ),
+      )
+      assert(host.querySelector<HTMLInputElement>('input[inputmode="numeric"]')?.value === '7', 'default would lower the refreshed quantity')
+      assert(!button('Update selected cards').disabled, 'preserving existing quantity requires manual entry')
+      flushSync(() => button('Update selected cards').click())
+      await until(() => host.textContent?.includes('Updated 2 cards.') === true)
+      assert(appliedQuantity === 7, 'default overwrote an existing higher count')
+    })
   } finally {
     flushSync(() => root.unmount())
     host.remove()

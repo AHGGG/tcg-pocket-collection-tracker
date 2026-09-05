@@ -250,7 +250,11 @@ try {
     assert.equal(video.overflow, false, `${label}: horizontal overflow`)
     assert.equal(video.nestedUpload, false, 'results are still inside the upload panel')
     assert.ok(Math.abs(video.imageWidth - video.referenceWidth) < 1, 'previews must be side-by-side with equal widths')
-    assert.equal(await evaluate(`document.querySelectorAll('[data-scan-card] button[aria-pressed="true"]').length`), 2, 'unreadable quantity was auto-selected')
+    assert.equal(
+      await evaluate(`document.querySelectorAll('[data-scan-card] button[aria-pressed="true"]').length`),
+      3,
+      'badge-less card should default to one and be selectable',
+    )
     await capture(`results-${label}.png`)
     presentation.push({ label, width, image, video })
   }

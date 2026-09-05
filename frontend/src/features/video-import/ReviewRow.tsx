@@ -7,6 +7,7 @@ import { allCards, getCardById, getCardByInternalId } from '@/lib/CardsDB'
 import { getLocalizedImagePath } from '@/lib/imageLocales'
 import { getCardNameByLang } from '@/lib/utils'
 import type { ExtractedCard } from '@/services/scanner/CardDetectionService'
+import { resolveDefaultQuantity } from './defaultQuantities'
 import { parseQuantity } from './snapshot'
 import type { ReviewDecision, ReviewGroup, Snapshot } from './types'
 
@@ -57,11 +58,11 @@ export function ReviewRow({
     } catch {
       /* Invalid input is not an update. */
     }
-    onChange({ ...decision, quantity: value, selected: !!card && valid, decreaseApproved: false })
+    onChange({ ...decision, quantity: value, quantitySource: 'manual', selected: !!card && valid, decreaseApproved: false })
   }
   const chooseCard = (internalId: number) => {
     setIdText(getCardByInternalId(internalId)?.card_id ?? '')
-    onChange({ ...decision, internalId, selected: false, decreaseApproved: false })
+    onChange(resolveDefaultQuantity({ ...decision, internalId, selected: false, decreaseApproved: false }, baseline))
   }
   return (
     <ScanMatchCard
@@ -111,7 +112,9 @@ export function ReviewRow({
           >
             <Plus className="h-4 w-4" />
           </Button>
-          <span className="ml-1 text-xs text-neutral-400">Owned total</span>
+          <span className="ml-1 text-xs text-neutral-400">
+            {decision.quantitySource === 'default' ? (previous && previous.quantity > 0 ? 'Existing total' : 'Default: 1') : 'Owned total'}
+          </span>
         </>
       }
       extractedImage={observation?.cardImage || match?.imageUrl}
@@ -122,9 +125,14 @@ export function ReviewRow({
       toggleDisabled={!canSelect}
       onToggle={() => onChange({ ...decision, selected: !decision.selected })}
     >
+      {decision.quantitySource === 'default' && (
+        <p className="mt-2 text-xs text-neutral-400">
+          {previous && previous.quantity > 0 ? 'No readable count. Keeping your existing quantity.' : 'No readable count. Defaulted to 1; adjust if needed.'}
+        </p>
+      )}
       {!canSelect && (
         <p className="mt-2 text-xs text-amber-300">
-          {card ? 'Enter an exact owned quantity to include this card.' : 'Choose the correct card below to include it.'}
+          {card ? 'Resolve the quantity below, or leave this card excluded.' : 'Choose the correct card below to include it.'}
         </p>
       )}
       {group.quantities.length > 1 && <p className="mt-2 text-xs text-amber-300">Conflicting readings: {group.quantities.join(', ')}. Check the quantity.</p>}
@@ -153,7 +161,12 @@ export function ReviewRow({
               onChange={(event) => {
                 const value = event.target.value
                 setIdText(value)
-                onChange({ ...decision, internalId: getCardById(value.trim())?.internal_id ?? null, selected: false, decreaseApproved: false })
+                onChange(
+                  resolveDefaultQuantity(
+                    { ...decision, internalId: getCardById(value.trim())?.internal_id ?? null, selected: false, decreaseApproved: false },
+                    baseline,
+                  ),
+                )
               }}
             />
           </label>

@@ -18,7 +18,7 @@ pnpm dev:video-import
 
 Open `/video-import.html` at the local address printed by Vite. Node.js 22+ is required.
 After recognition, review the results and press **Update selected cards** in the tracker, or **Export CSV** in the standalone page.
-Clear results are selected automatically. The upload panel, neutral theme, buttons, spinner, alerts, and responsive result cards now match the original image scanner.
+Clear matches are selected automatically; a missing quantity uses default 1, or keeps the current tracker quantity when higher. The upload panel, neutral theme, buttons, spinner, alerts, and responsive result cards now match the original image scanner.
 Captured and reference cards are visible side by side, with match scores, plus/minus owned-total controls, and click-to-include/exclude.
 Only alternate matches and extra evidence are collapsed. No global confirmation checkbox or setup wizard is required.
 
@@ -34,13 +34,18 @@ Repeating the same verified scan does not add copies. Unseen cards remain unchan
 Image scanning retains its original increment behavior.
 
 The tracker provides its current collection automatically. Decreases remain excluded until selected and explicitly approved in that result’s details.
-Missing, unreadable, capped (`99+`) or conflicting quantities are never guessed as zero or one.
+Missing or unreadable quantities now default to **1 per matched ownership ID**, mirroring the image scanner’s easy starting point—not one per frame.
+The UI explicitly labels this as a default, not an exact measurement. Existing tracker quantities of one or more are kept, including when the collection refreshes during review.
+Readable quantities still use the read total. Capped (`99+`) and conflicting counts remain excluded until corrected; ambiguous identities are not auto-selected.
+Changing a default with the quantity controls makes it a manual total, with the normal decrease safeguard.
 Unresolved rows are excluded by default and can be corrected in their details or left out.
 The application does not change your collection until you press **Update selected cards**; unsuccessful writes do not display success.
 
 Standalone CSV is a **partial ownership snapshot** of selected observed cards, in the existing tracker format (`NumberOwned`, `Collected`, stable ID and InternalId).
 It is not a full backup. Do not use a destination’s “clear collection” option when importing it.
-JSON distinguishes sampled-frame statistics from owned quantities and lists unresolved detections.
+CSV retains the tracker’s required columns and adds `QuantitySource` (`read`, `default-1`, `existing`, or `manual`). The original importer accepts extra columns.
+JSON includes the same provenance and lists unresolved detections. Neither format claims that a default is the exact number of copies.
+**Standalone caution:** without your baseline, the exporter can only use 1 for a badge-less card. Importing that CSV through another tool can overwrite a higher existing count. Use the integrated Scan page to preserve current tracker quantities automatically.
 
 ## Processing and limits
 
@@ -81,3 +86,11 @@ The automatic badge locator is heuristic; synthetic tests are not a claim that e
 5. Scan an image as before and verify the original image increment/review workflow still works.
 
 Do not open a PR until real-recording validation is complete.
+
+## Compact-view regression checks
+
+The original image scanner sets `increment: 1` for each extracted card and adds it to the stored quantity.
+Video collection scanning deliberately differs: missing counts start at 1 **once per unique ownership ID**, not +1 per frame or scan.
+
+Regression coverage includes badge-less exports with no typing, repeat scans, existing counts of 0/7/12, manual overrides, live collection refresh, conflicts, caps, and CSV provenance.
+Private recordings are used only locally and are never committed or uploaded to CI.

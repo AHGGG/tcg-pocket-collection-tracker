@@ -6,8 +6,8 @@ import { Button } from '@/components/ui/button'
 import { allCards, getCardByInternalId } from '@/lib/CardsDB'
 import type { VideoScanResult } from '@/services/scanner/VideoScanService'
 import { exportCsv } from './csv'
+import { initialVideoDecisions, quantityProvenance, resolveDefaultQuantity } from './defaultQuantities'
 import { CardOptions, ReviewRow } from './ReviewRow'
-import { initialDecisions } from './reconcile'
 import { downloadText } from './report'
 import type { VideoScanProgress } from './scanFrames'
 import { mergeSnapshot, selectedUpdates } from './snapshot'
@@ -87,12 +87,7 @@ export default function VideoImportPage({
       if (!scanned.groups.length) {
         throw new Error('No cards could be matched. Try a clearer recording.')
       }
-      const initial = initialDecisions(scanned.groups)
-      for (const decision of initial.values()) {
-        const previous = decision.internalId === null ? undefined : baseline.get(decision.internalId)
-        decision.selected = decision.internalId !== null && decision.quantity !== '' && (!previous || Number(decision.quantity) >= previous.quantity)
-      }
-      setDecisions(initial)
+      setDecisions(initialVideoDecisions(scanned.groups, baseline))
       setResult(scanned)
     } catch (caught) {
       if (mounted.current) {
@@ -112,10 +107,18 @@ export default function VideoImportPage({
     }
   }
 
+  const currentDecisions = new Map([...decisions].map(([key, decision]) => [key, resolveDefaultQuantity(decision, baseline)]))
+  const quantitySources = new Map(
+    [...currentDecisions.values()]
+      .filter((decision) => decision.selected && decision.internalId !== null)
+      .map((decision) => [decision.internalId as number, quantityProvenance(decision, baseline)]),
+  )
+  const defaultedCount = [...quantitySources.values()].filter((source) => source === 'default-1').length
+  const preservedCount = [...quantitySources.values()].filter((source) => source === 'existing').length
   let validationError = ''
   let updates: Snapshot = new Map()
   try {
-    const selected = selectedUpdates(decisions)
+    const selected = selectedUpdates(currentDecisions)
     const merged = mergeSnapshot(baseline, selected, validIds)
     updates = new Map(selected.map(({ internalId }) => [internalId, merged.get(internalId) as NonNullable<ReturnType<Snapshot['get']>>]))
   } catch (caught) {
@@ -222,15 +225,22 @@ export default function VideoImportPage({
           <h2 className="text-center text-xl">Found {result.groups.length} cards</h2>
           <p className="text-center text-sm text-neutral-400 px-2">Adjust the owned total for matched cards. Click an image to exclude or include a card.</p>
           <p className="text-center text-xs text-neutral-500 px-2">
-            {updates.size} selected · Totals replace counts, not add copies. Unreadable quantities are excluded.
+            {updates.size} selected · Repeated frames never add copies. Missing counts default to 1; conflicting readings stay excluded.
           </p>
+          {(defaultedCount > 0 || preservedCount > 0) && (
+            <p className="text-center text-xs text-amber-300 px-2" role="status">
+              {defaultedCount > 0 && `${defaultedCount} cards use default 1—not an exact count. `}
+              {preservedCount > 0 && `${preservedCount} cards keep their existing quantity. `}
+              {!onApply && 'Importing this CSV into another collection may replace higher counts. Adjust totals when needed.'}
+            </p>
+          )}
           <CardOptions />
           <div className={scanGridClass} data-scan-results>
             {result.groups.slice(page * 24, (page + 1) * 24).map((group) => (
               <ReviewRow
                 key={group.key}
                 group={group}
-                decision={decisions.get(group.key) as ReviewDecision}
+                decision={currentDecisions.get(group.key) as ReviewDecision}
                 baseline={baseline}
                 language={language}
                 match={group.internalId === null ? undefined : matches.get(group.internalId)}
@@ -265,7 +275,7 @@ export default function VideoImportPage({
             variant={onApply ? 'outline' : 'default'}
             className={scanActionClass}
             disabled={!updates.size || !!validationError}
-            onClick={() => downloadText('video-collection.csv', exportCsv(updates, allCards), 'text/csv;charset=utf-8')}
+            onClick={() => downloadText('video-collection.csv', exportCsv(updates, allCards, quantitySources), 'text/csv;charset=utf-8')}
           >
             Export CSV
           </Button>
@@ -289,9 +299,13 @@ export default function VideoImportPage({
                         partial: true,
                         sampledFrames: result.sampled,
                         duration: result.duration,
-                        entries: [...updates].map(([internalId, entry]) => ({ internalId, ...entry })),
+                        entries: [...updates].map(([internalId, entry]) => ({
+                          internalId,
+                          ...entry,
+                          quantitySource: quantitySources.get(internalId),
+                        })),
                         unresolved: result.groups
-                          .filter((group) => !decisions.get(group.key)?.selected)
+                          .filter((group) => !currentDecisions.get(group.key)?.selected)
                           .map((group) => ({ internalId: group.internalId, quantities: group.quantities, hasLowerBound: group.hasLowerBound })),
                       },
                       null,

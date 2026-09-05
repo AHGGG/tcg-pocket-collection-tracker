@@ -69,6 +69,8 @@ export interface ReviewGroup {
 }
 
 export interface ReviewDecision {
+  /** A fallback is evidence of ownership, NOT a measured copy count. */
+  quantitySource?: 'read' | 'default' | 'manual'
   selected: boolean
   internalId: number | null
   quantity: string

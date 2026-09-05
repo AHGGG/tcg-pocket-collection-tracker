@@ -123,9 +123,9 @@ function escapeField(value: string | number | boolean): string {
 }
 
 /** One row per ownership key avoids conflicting writes for linked artwork aliases. */
-export function exportCsv(snapshot: Snapshot, cards: readonly CatalogCard[]): string {
+export function exportCsv(snapshot: Snapshot, cards: readonly CatalogCard[], quantitySources?: ReadonlyMap<number, string>): string {
   const catalogue = canonicalCards(cards)
-  const rows: (string | number | boolean)[][] = [[...CSV_HEADER]]
+  const rows: (string | number | boolean)[][] = [[...CSV_HEADER, ...(quantitySources ? ['QuantitySource'] : [])]]
   for (const [internalId, entry] of snapshot) {
     const card = catalogue.get(internalId)
     if (!card) {
@@ -134,7 +134,17 @@ export function exportCsv(snapshot: Snapshot, cards: readonly CatalogCard[]): st
     if (!Number.isSafeInteger(entry.quantity) || entry.quantity < 0) {
       throw new Error(`Cannot export invalid quantity for ${internalId}.`)
     }
-    rows.push([card.card_id, card.name, internalId, entry.quantity, card.expansion, card.pack, card.rarity, entry.collected])
+    rows.push([
+      card.card_id,
+      card.name,
+      internalId,
+      entry.quantity,
+      card.expansion,
+      card.pack,
+      card.rarity,
+      entry.collected,
+      ...(quantitySources ? [quantitySources.get(internalId) ?? 'unspecified'] : []),
+    ])
   }
   return `\uFEFF${rows.map((row) => row.map(escapeField).join(',')).join('\r\n')}\r\n`
 }
